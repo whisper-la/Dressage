@@ -142,10 +142,10 @@ Your Python Agent
 
 ```bash
 # ALFWorld recipe (TextWorld navigation)
-bash examples/scripts/run_alfworld_qwen3.5_4b.sh
+bash examples/scripts/run_alfworld_whitebox_agent_qwen3.5_4b.sh
 
 # HotpotQA recipe (multi-hop retrieval)
-bash examples/scripts/run_hotpotqa_qwen3.5_4b.sh
+bash examples/scripts/run_hotpotqa_whitebox_agent_qwen3.5_4b.sh
 ```
 
 ### Blackbox — HTTP Agent Rollouts
@@ -190,7 +190,7 @@ export DRESSAGE_LOCAL_BWRAP_POOL_MODE=command_only
 # 2️⃣ Run training
 # The example script sources examples/scripts/default/dressage_env_defaults.sh
 # and applies its helper defaults internally.
-bash examples/scripts/run_alfworld_qwen3.5_4b.sh
+bash examples/scripts/run_alfworld_whitebox_agent_qwen3.5_4b.sh
 ```
 
 ### Option B: Blackbox Agent (Local Bubblewrap)
@@ -431,7 +431,7 @@ The simplest configuration for development and debugging. Synchronous rollout �
 cd slime
 python3 train.py \
   --custom-generate-function-path \
-    dressage.recipes.alfworld.agent.generate \
+    dressage.recipes.alfworld.agent_whitebox.generate \
   --rollout-function-path \
     dressage.rollout.sync_rollout.generate_rollout_sync \
   --custom-convert-samples-to-train-data-path \

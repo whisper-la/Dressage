@@ -3,8 +3,8 @@
 Scoring contract (mirrors StepPO ``recipe/hotpotqa/reward_fn.py``):
 - ``sample.response`` is the concatenated assistant text (all segments).
 - The answer is whatever text is between the **last** ``<answer>...</answer>``
-  block — the prompt protocol used by ``hotpotqa_agent.py`` and
-  ``hotpotqa_multi_segment_generate.py``.
+  block — the prompt protocol used by
+  ``dressage.recipes.hotpotqa.agent_whitebox``.
 - Ground truth is read from ``sample.label``; accepts either a JSON-encoded
   ``{"ground_truth": {"target": [...]}}`` envelope (data prep default) or a
   bare answer string.

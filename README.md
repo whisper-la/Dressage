@@ -116,7 +116,7 @@ cd /root/Dressage
 bash examples/scripts/run_blackbox_qwen3.5_4b_async_local.sh
 ```
 
-For detailed setup instructions, all configuration options, and troubleshooting, see the **[Quick Start Guide](docs/quickstart.md)**.
+For detailed setup instructions, all configuration options, and troubleshooting, see the **[Quick Start Guide](docs/quickstart.md)**. To prepare and run the bundled ALFWorld and HotpotQA whitebox recipes, see the **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)**.
 
 ## 📁 Project Structure
 
@@ -182,6 +182,8 @@ Transforms proxy-recorded trajectories into slime-compatible training data. Mult
 
 Complete whitebox agent implementations demonstrating the framework. **ALFWorld**: TextWorld navigation agent with `env_step` tool for household task completion. **HotpotQA**: multi-hop retrieval agent with local FAISS+BGE index for complex question answering. Both include training scripts, reward functions, and a build-your-own guide for custom agents.
 
+For the end-to-end data preparation and launch commands for these recipes, see the **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)**.
+
 ## 📚 Documentation
 
 - **[Proxy](docs/proxy.md)** — Inference proxy architecture, session model, trajectory build modes, routing replay
@@ -191,6 +193,7 @@ Complete whitebox agent implementations demonstrating the framework. **ALFWorld*
 - **[Rollout](docs/rollout.md)** — Generate hooks, async modes, reward registry, slime wiring
 - **[Training](docs/training.md)** — Multi-segment, TITO, prompt-equal aggregation, partial rollout
 - **[Recipes](docs/recipes.md)** — ALFWorld and HotpotQA example agents, build-your-own guide
+- **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)** — Data preparation and launch commands for ALFWorld and HotpotQA whitebox agents
 - **[Quick Start](docs/quickstart.md)** — Step-by-step setup, configuration reference, troubleshooting
 
 ## 🐳 Docker

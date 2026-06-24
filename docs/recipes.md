@@ -17,11 +17,13 @@ Recipes are designed to showcase the framework's key capabilities:
 ```text
 dressage/recipes/
 ├── alfworld/        # TextWorld navigation agent
-│   ├── agent.py     #   ALFWorld WhiteboxAgent implementation
-│   └── reward.py    #   Task completion reward function
+│   ├── agent_whitebox.py  # ALFWorld WhiteboxAgent implementation
+│   ├── tools.py           # Prompt, parsing, and TextWorld helpers
+│   └── reward.py          # Task completion reward function
 └── hotpotqa/        # Multi-hop retrieval agent
-    ├── agent.py     #   HotpotQA WhiteboxAgent implementation
-    └── reward.py    #   Exact-match answer reward
+    ├── agent_whitebox.py  # HotpotQA WhiteboxAgent implementation
+    ├── tools.py           # Prompt, parsing, and local search helpers
+    └── reward.py          # Exact-match answer reward
 ```
 
 ## 🏠 ALFWorld
@@ -84,10 +86,10 @@ ALFWorld Agent (WhiteboxAgent subclass)
 
 ```bash
 # Sync rollout — simpler, good for debugging
-bash examples/scripts/run_alfworld_qwen3.5_4b.sh
+bash examples/scripts/run_alfworld_whitebox_agent_qwen3.5_4b.sh
 
 # Async rollout — better GPU utilization for training
-bash examples/scripts/run_alfworld_qwen3.5_4b_async.sh
+bash examples/scripts/run_alfworld_whitebox_agent_qwen3.5_4b_async.sh
 ```
 
 ### Key Configuration
@@ -100,7 +102,7 @@ DRESSAGE_SANDBOX_PROVIDER=local_bwrap
 DRESSAGE_LOCAL_BWRAP_POOL_MODE=command_only
 
 # Generate function points to the ALFWorld agent
---custom-generate-function-path dressage.recipes.alfworld.agent.generate
+--custom-generate-function-path dressage.recipes.alfworld.agent_whitebox.generate
 --custom-rm-path dressage.reward.custom_rm.custom_rm
 DRESSAGE_REWARD_MODULES=dressage.recipes.alfworld.reward
 
@@ -181,10 +183,10 @@ HOTPOTQA_TOPK=5
 
 ```bash
 # Sync rollout — simpler, good for debugging
-bash examples/scripts/run_hotpotqa_qwen3.5_4b.sh
+bash examples/scripts/run_hotpotqa_whitebox_agent_qwen3.5_4b.sh
 
 # Async rollout — better GPU utilization for training
-bash examples/scripts/run_hotpotqa_qwen3.5_4b_async.sh
+bash examples/scripts/run_hotpotqa_whitebox_agent_qwen3.5_4b_async.sh
 ```
 
 ### Key Configuration
@@ -193,7 +195,7 @@ bash examples/scripts/run_hotpotqa_qwen3.5_4b_async.sh
 DRESSAGE_PADDOCK_MODE=whitebox
 
 # Generate function points to the HotpotQA agent
---custom-generate-function-path dressage.recipes.hotpotqa.agent.generate
+--custom-generate-function-path dressage.recipes.hotpotqa.agent_whitebox.generate
 --custom-rm-path dressage.reward.custom_rm.custom_rm
 DRESSAGE_REWARD_MODULES=dressage.recipes.hotpotqa.reward
 ```
@@ -365,10 +367,10 @@ All example training scripts are in `examples/scripts/`. They demonstrate differ
 
  | Script | Agent | Mode | Description |
  | :------- | :------ | :----- | :------------ |
- | `run_alfworld_qwen3.5_4b.sh` | ALFWorld | Sync | Whitebox, synchronous rollout |
- | `run_alfworld_qwen3.5_4b_async.sh` | ALFWorld | Async | Whitebox, fully async rollout |
- | `run_hotpotqa_qwen3.5_4b.sh` | HotpotQA | Sync | Whitebox, synchronous rollout |
- | `run_hotpotqa_qwen3.5_4b_async.sh` | HotpotQA | Async | Whitebox, fully async rollout |
+ | `run_alfworld_whitebox_agent_qwen3.5_4b.sh` | ALFWorld | Sync | Whitebox, synchronous rollout |
+ | `run_alfworld_whitebox_agent_qwen3.5_4b_async.sh` | ALFWorld | Async | Whitebox, fully async rollout |
+ | `run_hotpotqa_whitebox_agent_qwen3.5_4b.sh` | HotpotQA | Sync | Whitebox, synchronous rollout |
+ | `run_hotpotqa_whitebox_agent_qwen3.5_4b_async.sh` | HotpotQA | Async | Whitebox, fully async rollout |
 
 ### Blackbox Scripts
 

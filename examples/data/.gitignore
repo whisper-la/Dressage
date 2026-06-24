@@ -1,0 +1,19 @@
+# Keep this directory for data-preparation code only. Generated datasets,
+# downloaded corpora, indexes, embedding caches, and prompt JSONL outputs stay
+# local.
+*
+!.gitignore
+!dressage_dapo_prompts.jsonl
+!dressage_dapo_prompts_e2b.jsonl
+
+!alfworld/
+!alfworld/prepare_alfworld.py
+!alfworld/alfworld_data/
+!alfworld/alfworld_data/.gitignore
+
+!hotpotqa/
+!hotpotqa/prepare_hotpotqa.py
+!hotpotqa/build_corpus.py
+!hotpotqa/build_index.py
+!hotpotqa/corpus/
+!hotpotqa/corpus/.gitignore
