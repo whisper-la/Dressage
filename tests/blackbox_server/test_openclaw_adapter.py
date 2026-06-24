@@ -15,6 +15,7 @@ from blackbox_server.adapters.base import (
     BackendContextOverflowError,
     BackendMaxStepsExceededError,
     BackendProtocolError,
+    BackendTransportError,
 )
 from blackbox_server.adapters.openclaw import (
     OpenClawAdapter,
@@ -42,6 +43,7 @@ class FakeProxy:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
         self.max_steps_payload: dict[str, Any] | None = None
+        self.rollout_invalidated_payload: dict[str, Any] | None = None
         self.max_steps_event = asyncio.Event()
 
     async def open_turn(self, turn_id: str, backend_session_id: str | None = None) -> None:
@@ -53,6 +55,14 @@ class FakeProxy:
     async def consume_context_overflow_error(self) -> dict[str, Any] | None:
         self.calls.append(("consume_context_overflow_error", None))
         return None
+
+    async def consume_rollout_invalidated_error(self) -> dict[str, Any] | None:
+        self.calls.append(("consume_rollout_invalidated_error", None))
+        if self.rollout_invalidated_payload is None:
+            return None
+        payload = dict(self.rollout_invalidated_payload)
+        self.rollout_invalidated_payload = None
+        return payload
 
     async def wait_for_max_steps_error(self, timeout: float | None = None) -> dict[str, Any] | None:
         if self.max_steps_payload is not None:
@@ -79,6 +89,9 @@ class FakeProxy:
     def trigger_max_steps_error(self, payload: dict[str, Any]) -> None:
         self.max_steps_payload = payload
         self.max_steps_event.set()
+
+    def trigger_rollout_invalidated_error(self, payload: dict[str, Any]) -> None:
+        self.rollout_invalidated_payload = payload
 
     async def clear_turn(self) -> None:
         self.calls.append(("clear", None))
@@ -645,8 +658,57 @@ def test_send_message_posts_chat_completion_payload_and_headers(tmp_path: Path) 
     assert adapter._proxy.calls[1][0] == "drain"
     assert isinstance(adapter._proxy.calls[1][1], float)
     assert adapter._proxy.calls[2] == ("consume_context_overflow_error", None)
-    assert adapter._proxy.calls[3] == ("drain", None)
-    assert adapter._proxy.calls[4] == ("clear", None)
+    assert adapter._proxy.calls[3] == ("consume_rollout_invalidated_error", None)
+    assert adapter._proxy.calls[4] == ("drain", None)
+    assert adapter._proxy.calls[5] == ("clear", None)
+
+
+def test_send_message_raises_proxy_rollout_invalidated_error(tmp_path: Path) -> None:
+    adapter = OpenClawAdapter()
+    adapter._binding_context = _make_binding_context(tmp_path)
+    adapter._options = _minimal_options()
+    adapter._gateway_token = "token-test"
+    adapter._proxy = FakeProxy()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        adapter._proxy.trigger_rollout_invalidated_error(
+            {
+                "error": "partial_rollout_staleness_exceeded",
+                "message": "Partial rollout model version span exceeded limit.",
+            }
+        )
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "choices": [{"message": {"role": "assistant", "content": ""}}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            },
+        )
+
+    async def run_test() -> None:
+        adapter._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="http://openclaw.test",
+        )
+        session = _make_session_context()
+        with patch.object(adapter, "health", return_value=True):
+            with pytest.raises(
+                BackendTransportError,
+                match="partial_rollout_staleness_exceeded",
+            ):
+                await adapter.send_message(
+                    session,
+                    _make_turn_context("turn-1"),
+                    [Message(role="user", content="hello")],
+                )
+        await adapter._client.aclose()
+
+    asyncio.run(run_test())
+
+    assert ("consume_rollout_invalidated_error", None) in adapter._proxy.calls
+    assert ("clear", None) in adapter._proxy.calls
 
 
 def test_send_message_cancels_openclaw_chat_on_proxy_max_steps(tmp_path: Path) -> None:

@@ -324,10 +324,12 @@ def test_expand_rejects_duplicate_segment_index():
 # ---------------------------------------------------------------------------
 
 
-def _make_metric_sample(*, parent_traj_id=None, remove_sample=False):
+def _make_metric_sample(*, parent_traj_id=None, full_versions=None, remove_sample=False):
     meta: dict[str, Any] = {}
     if parent_traj_id is not None:
         meta["parent_traj_id"] = parent_traj_id
+    if full_versions is not None:
+        meta["full_versions"] = full_versions
     return SimpleNamespace(metadata=meta, remove_sample=remove_sample)
 
 
@@ -357,6 +359,21 @@ def test_compute_multi_segment_metrics_excludes_failures():
     metrics = compute_multi_segment_metrics(samples)
     assert metrics["rollout/num_trajectories"] == 1
     assert metrics["rollout/num_segments"] == 2
+
+
+def test_compute_multi_segment_metrics_reports_version_span():
+    samples = [
+        _make_metric_sample(parent_traj_id="t1", full_versions=["-1", "1", "1"]),
+        _make_metric_sample(parent_traj_id="t1", full_versions=["1", "2"]),
+        _make_metric_sample(parent_traj_id="t2", full_versions=["-1", "3"]),
+        _make_metric_sample(parent_traj_id="t3", full_versions=["4"], remove_sample=True),
+    ]
+
+    metrics = compute_multi_segment_metrics(samples)
+
+    assert metrics["staleness/version_span_mean"] == pytest.approx(1.5)
+    assert metrics["staleness/version_span_max"] == 2
+    assert metrics["staleness/version_span_min"] == 1
 
 
 def test_compute_multi_segment_metrics_empty():

@@ -18,6 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 DRESSAGE_ROLLOUT_INVALIDATED_ERRORS = {
     "generation_preempted",
+    "partial_rollout_staleness_exceeded",
     "trajectory_version_changed",
 }
 

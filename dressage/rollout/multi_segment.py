@@ -33,6 +33,41 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_NON_REAL_TOKEN_VERSIONS = {"", "-1", "none", "unknown"}
+
+
+def _real_token_version(value: Any) -> str | None:
+    if value is None:
+        return None
+    version = str(value).strip()
+    if version.lower() in _NON_REAL_TOKEN_VERSIONS:
+        return None
+    return version
+
+
+def _metric_trajectory_id(sample: Any) -> str | None:
+    meta = getattr(sample, "metadata", None) or {}
+    value = meta.get("parent_traj_id") or meta.get("session_id")
+    if value is not None:
+        return str(value)
+
+    rollout_id = getattr(sample, "rollout_id", None)
+    if rollout_id is not None:
+        return f"rollout:{rollout_id}"
+
+    index = getattr(sample, "index", None)
+    if index is not None:
+        return f"sample:{index}"
+
+    return None
+
+
+def _append_ordered_unique(target: list[str], values: list[Any]) -> None:
+    for value in values:
+        version = _real_token_version(value)
+        if version is not None and version not in target:
+            target.append(version)
+
 
 def mark_aborted_no_grad(
     sample: Any,
@@ -168,25 +203,47 @@ def compute_multi_segment_metrics(samples: list[Any]) -> dict[str, float]:
     so the metrics ride through ``RolloutFnTrainOutput.metrics``.
     """
     counts: dict[str, int] = {}
+    versions_by_traj: dict[str, list[str]] = {}
     for s in samples:
         if getattr(s, "remove_sample", False):
             continue
         meta = getattr(s, "metadata", None) or {}
         traj_id = meta.get("parent_traj_id")
+        metric_traj_id = _metric_trajectory_id(s)
+
         if traj_id is None:
-            continue
-        counts[traj_id] = counts.get(traj_id, 0) + 1
+            pass
+        else:
+            counts[traj_id] = counts.get(traj_id, 0) + 1
 
-    if not counts:
-        return {}
+        if metric_traj_id is not None and isinstance(meta.get("full_versions"), list):
+            versions = versions_by_traj.setdefault(metric_traj_id, [])
+            _append_ordered_unique(versions, meta["full_versions"])
 
-    values = list(counts.values())
-    n_traj = len(values)
-    total = sum(values)
-    return {
-        "rollout/segments_per_trajectory_mean": total / n_traj,
-        "rollout/segments_per_trajectory_max": float(max(values)),
-        "rollout/segments_per_trajectory_min": float(min(values)),
-        "rollout/num_trajectories": float(n_traj),
-        "rollout/num_segments": float(total),
-    }
+    metrics: dict[str, float] = {}
+
+    if counts:
+        values = list(counts.values())
+        n_traj = len(values)
+        total = sum(values)
+        metrics.update({
+            "rollout/segments_per_trajectory_mean": total / n_traj,
+            "rollout/segments_per_trajectory_max": float(max(values)),
+            "rollout/segments_per_trajectory_min": float(min(values)),
+            "rollout/num_trajectories": float(n_traj),
+            "rollout/num_segments": float(total),
+        })
+
+    version_spans = [
+        len(versions)
+        for versions in versions_by_traj.values()
+        if versions
+    ]
+    if version_spans:
+        metrics.update({
+            "staleness/version_span_mean": sum(version_spans) / len(version_spans),
+            "staleness/version_span_max": float(max(version_spans)),
+            "staleness/version_span_min": float(min(version_spans)),
+        })
+
+    return metrics

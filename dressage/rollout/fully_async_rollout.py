@@ -19,6 +19,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_STALENESS_ERROR_MARKER = "partial_rollout_staleness_exceeded"
+
 try:
     from slime.rollout.base_types import RolloutFnTrainOutput
     from slime.rollout.sglang_rollout import GenerateState, generate_and_rm_group
@@ -108,9 +110,31 @@ def _short_error(value: Any, limit: int = 500) -> str:
     return f"{text[:limit]}..."
 
 
+def _contains_staleness_marker(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, dict):
+        return any(
+            _contains_staleness_marker(key) or _contains_staleness_marker(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set)):
+        return any(_contains_staleness_marker(item) for item in value)
+    return _STALENESS_ERROR_MARKER in str(value)
+
+
 def _sample_metadata(sample: Any) -> dict[str, Any]:
     metadata = getattr(sample, "metadata", None)
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _group_has_staleness_failure(
+    group: list[Any],
+    error: BaseException | None = None,
+) -> bool:
+    if _contains_staleness_marker(error):
+        return True
+    return any(_contains_staleness_marker(_sample_metadata(sample)) for sample in group)
 
 
 def _group_failure_summary(

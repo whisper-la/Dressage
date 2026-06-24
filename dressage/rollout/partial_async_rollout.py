@@ -34,6 +34,7 @@ from dressage.rollout.fully_async_rollout import (
     _allow_empty_train_batch,
     _flatten_multi_segment_result,
     _group_failure_summary,
+    _group_has_staleness_failure,
     _group_has_trainable_tokens,
     _increment_retry,
     _is_aborted_group,
@@ -397,6 +398,8 @@ async def generate_rollout_partial_async_impl(
     completed_by_id: dict[int, CompletedGroup] = {}
     data: list[list[Any]] = []
     dropped_failed_groups = 0
+    staleness_rejected_groups = 0
+    staleness_rejected_samples = 0
     dropped_failure_summaries: list[str] = []
     retried_groups = 0
     last_progress_time = time.time()
@@ -429,8 +432,16 @@ async def generate_rollout_partial_async_impl(
                 break
             completed = completed_by_id.pop(group_id)
             if completed.is_failed:
+                failed_group = completed.result or completed.original_group
+                staleness_failure = _group_has_staleness_failure(
+                    failed_group,
+                    completed.error,
+                )
+                if staleness_failure:
+                    staleness_rejected_groups += 1
+                    staleness_rejected_samples += len(completed.original_group)
                 summary = _group_failure_summary(
-                    completed.result or completed.original_group, completed.error
+                    failed_group, completed.error
                 )
                 if _retry_count(completed.original_group) < max_retries:
                     _increment_retry(completed.original_group)
@@ -530,6 +541,8 @@ async def generate_rollout_partial_async_impl(
         "dressage/partial_rollout_retried_groups": retried_groups,
         "dressage/partial_rollout_failed_groups": dropped_failed_groups,
         "dressage/partial_rollout_dropped_failed_groups": dropped_failed_groups,
+        "staleness/partial_rollout_rejected_groups": staleness_rejected_groups,
+        "staleness/partial_rollout_rejected_samples": staleness_rejected_samples,
         "dressage/partial_rollout_queued_completed_groups": worker.queued_completed_count(),
         "dressage/partial_rollout_final_worker_drain": int(drain_final_worker),
         "dressage/partial_rollout_drained_completed_groups": drained_completed_groups,

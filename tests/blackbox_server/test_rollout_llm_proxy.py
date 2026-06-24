@@ -611,6 +611,29 @@ def test_rollout_proxy_hides_plain_dressage_rollout_invalidated_response():
     asyncio.run(run_test())
 
 
+def test_rollout_proxy_recognizes_partial_staleness_invalidated_response():
+    proxy = _make_proxy()
+    payload = {
+        "detail": {
+            "error": "partial_rollout_staleness_exceeded",
+            "message": "Partial rollout model version span exceeded limit.",
+            "session_id": "sess-001",
+            "versions": ["v1", "v2", "v3"],
+            "version_span": 3,
+            "version_switches": 2,
+            "max_preempts": 1,
+            "max_version_span": 2,
+        }
+    }
+
+    recorded = proxy._rollout_invalidated_payload_from_response(
+        status_code=502,
+        response_body=json.dumps(payload).encode("utf-8"),
+    )
+
+    assert recorded == payload["detail"]
+
+
 def test_rollout_proxy_hides_stream_dressage_rollout_invalidated_response():
     proxy = _make_proxy()
     payload = {

@@ -163,16 +163,42 @@ def record_blackbox_abort_for_retry(
         history = []
         metadata["blackbox_failure_history"] = history
 
+    http_error_metadata = _http_status_error_metadata(exc)
     error_text = str(exc)
-    history.append(
-        {
-            "session_id": session_id,
-            "error_type": type(exc).__name__,
-            "error": error_text,
-            "retry_count": metadata.get("dressage_retry_count", 0),
-        }
-    )
+    if http_error_metadata.get("http_response_body"):
+        error_text = f"{error_text}; response_body={http_error_metadata['http_response_body']}"
+
+    history_entry = {
+        "session_id": session_id,
+        "error_type": type(exc).__name__,
+        "error": error_text,
+        "retry_count": metadata.get("dressage_retry_count", 0),
+    }
+    history_entry.update(http_error_metadata)
+    history.append(history_entry)
     metadata["blackbox_error"] = error_text
+    for key, value in http_error_metadata.items():
+        metadata[f"blackbox_{key}"] = value
+
+
+def _http_status_error_metadata(exc: BaseException) -> dict[str, Any]:
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return {}
+
+    response = exc.response
+    payload: dict[str, Any] = {
+        "http_status_code": response.status_code,
+    }
+    body = response.text
+    if body:
+        text, truncated = _truncated_metadata_text(body)
+        payload["http_response_body"] = text
+        payload["http_response_body_truncated"] = truncated
+    try:
+        payload["http_response_json"] = _json_safe(response.json())
+    except ValueError:
+        pass
+    return payload
 
 
 def _agent_payload_state(payload: Any) -> str | None:

@@ -237,6 +237,51 @@ def test_partial_async_rollout_drops_exhausted_failed_group_and_keeps_collecting
     assert [group[0].index for group in result] == [1]
     assert result[0][0].status == SampleLike.Status.COMPLETED
 
+
+def test_partial_async_rollout_reports_staleness_rejected_groups(monkeypatch):
+    async def fake_generate_and_rm_group(args, group, sampling_params, evaluation=False):
+        del args, sampling_params, evaluation
+        sample = group[0]
+        if sample.index == 0:
+            sample.status = SampleLike.Status.ABORTED
+            sample.metadata["blackbox_error"] = (
+                "Dressage proxy error=partial_rollout_staleness_exceeded "
+                "version_span=3 max_version_span=2"
+            )
+            sample.session_id = None
+            return group
+
+        sample.status = SampleLike.Status.COMPLETED
+        sample.reward = 1.0
+        sample.tokens = [1, 2]
+        sample.response_length = 1
+        sample.loss_mask = [1]
+        sample.rollout_log_probs = [-0.1]
+        return group
+
+    class TrainOutput:
+        def __init__(self, samples, metrics=None):
+            self.samples = samples
+            self.metrics = metrics or {}
+
+    monkeypatch.setattr(partial_async_rollout, "generate_and_rm_group", fake_generate_and_rm_group)
+    monkeypatch.setattr(partial_async_rollout, "GenerateState", None)
+    monkeypatch.setattr(partial_async_rollout, "RolloutFnTrainOutput", TrainOutput)
+    monkeypatch.setenv("DRESSAGE_ASYNC_MAX_ACTIVE_GROUPS", "1")
+    monkeypatch.setenv("DRESSAGE_PARTIAL_ROLLOUT_TARGET_GROUPS", "1")
+    monkeypatch.setenv("DRESSAGE_ROLLOUT_MAX_RETRIES", "0")
+    monkeypatch.setenv("DRESSAGE_ASYNC_MAX_DROPPED_FAILED_GROUPS", "10")
+
+    data = DataBuffer([[SampleLike(index=0)], [SampleLike(index=1)]])
+    args = SimpleNamespace(rollout_batch_size=1, n_samples_per_prompt=1, global_batch_size=1)
+
+    output = partial_async_rollout.generate_rollout_partial_async(args, 0, data)
+
+    assert _samples(output)[0][0].index == 1
+    assert output.metrics["staleness/partial_rollout_rejected_groups"] == 1
+    assert output.metrics["staleness/partial_rollout_rejected_samples"] == 1
+
+
 def test_partial_async_rollout_drains_worker_after_final_rollout(monkeypatch):
     async def fake_generate_and_rm_group(args, group, sampling_params, evaluation=False):
         del args, sampling_params, evaluation
