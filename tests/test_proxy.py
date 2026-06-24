@@ -736,6 +736,8 @@ def make_client(
     context_window: int | None = None,
     dynamic_max_tokens: bool = True,
     use_rollout_routing_replay: bool = False,
+    partial_rollout: bool = False,
+    max_partial_rollout_preempts: int | None = None,
 ):
     session_manager = SessionManager()
     trajectory_store = TrajectoryStore(min_group_size=1, group_timeout=0.0)
@@ -761,6 +763,8 @@ def make_client(
         context_window=context_window,
         dynamic_max_tokens=dynamic_max_tokens,
         use_rollout_routing_replay=use_rollout_routing_replay,
+        partial_rollout=partial_rollout,
+        max_partial_rollout_preempts=max_partial_rollout_preempts,
     )
     if tool_call_parser is not _UNSET:
         create_app_kwargs["tool_call_parser"] = tool_call_parser
@@ -1070,6 +1074,21 @@ def test_parse_args_can_disable_dynamic_max_tokens(monkeypatch):
     )
 
     assert parse_args().dynamic_max_tokens is False
+
+
+def test_parse_args_accepts_max_partial_rollout_preempts(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "dressage.proxy.server",
+            "--tokenizer-path",
+            "fake-tokenizer",
+            "--max-partial-rollout-preempts",
+            "0",
+        ],
+    )
+
+    assert parse_args().max_partial_rollout_preempts == 0
 
 
 def test_chat_completion_context_window_input_overflow_skips_sglang():
@@ -3213,6 +3232,44 @@ def test_non_partial_session_rejects_stale_epoch_before_sglang():
     session = session_manager.get_session("sess-cross-version")
     assert session is not None
     assert len(session.steps) == 1
+
+
+def test_partial_rollout_rejects_staleness_exceeded():
+    first = make_response("a", finish_reason="abort", output_logprobs=[-0.11])
+    first.meta_info = {"finish_reason": {"type": "abort"}, "weight_version": "v1"}
+    second = make_response("b", finish_reason="abort", output_logprobs=[-0.22])
+    second.meta_info = {"finish_reason": {"type": "abort"}, "weight_version": "v2"}
+    third = make_response("c", output_logprobs=[-0.33])
+    third.meta_info = {"finish_reason": {"type": "stop"}, "weight_version": "v3"}
+    client, session_manager, _, sglang_client = make_client(
+        first,
+        second,
+        third,
+        partial_rollout=True,
+        max_partial_rollout_preempts=1,
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={
+            "X-Session-Id": "sess-staleness",
+            "X-Instance-Id": "inst-staleness",
+        },
+        json={"model": "fake-model", "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["error"] == "partial_rollout_staleness_exceeded"
+    assert detail["versions"] == ["v1", "v2", "v3"]
+    assert detail["version_span"] == 3
+    assert detail["version_switches"] == 2
+    assert detail["max_preempts"] == 1
+    assert detail["max_version_span"] == 2
+    assert len(sglang_client.calls) == 3
+    session = session_manager.get_session("sess-staleness")
+    assert session is not None
+    assert len(session.steps) == 0
 
 
 def test_non_partial_first_step_waiting_for_resume_binds_generated_epoch():

@@ -390,6 +390,31 @@ def _http_status_error(
         response = httpx.Response(status_code, json=json_body, request=request)
     return httpx.HTTPStatusError("request failed", request=request, response=response)
 
+def test_blackbox_failures_record_abort_includes_http_response_body():
+    metadata = {"dressage_retry_count": 1}
+    request = httpx.Request("POST", "http://proxy/v1/chat/completions")
+    response = httpx.Response(
+        502,
+        json={
+            "detail": {
+                "error": "partial_rollout_staleness_exceeded",
+                "version_span": 3,
+            }
+        },
+        request=request,
+    )
+    exc = httpx.HTTPStatusError("bad gateway", request=request, response=response)
+
+    record_blackbox_abort_for_retry(metadata, "bbs-sess", exc)
+
+    assert "partial_rollout_staleness_exceeded" in metadata["blackbox_error"]
+    assert metadata["blackbox_http_status_code"] == 502
+    assert "partial_rollout_staleness_exceeded" in metadata["blackbox_http_response_body"]
+    assert metadata["blackbox_http_response_json"]["detail"]["version_span"] == 3
+    history = metadata["blackbox_failure_history"][0]
+    assert "partial_rollout_staleness_exceeded" in history["error"]
+    assert "partial_rollout_staleness_exceeded" in history["http_response_body"]
+
 
 def test_execute_hooks_run_stage_and_record_optional_http_failure():
     asyncio.run(_run_execute_hooks_run_stage_and_record_optional_http_failure())

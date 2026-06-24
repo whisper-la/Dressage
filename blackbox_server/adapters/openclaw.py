@@ -221,6 +221,7 @@ class OpenClawAdapter(BackendAdapter):
                     timeout=self._remaining_timeout(deadline, operation="wait for rollout proxy drain")
                 )
                 await self._raise_if_proxy_context_overflow()
+                await self._raise_if_proxy_rollout_invalidated()
 
             _raise_if_openclaw_max_steps_exceeded(raw, self._options)
 
@@ -871,6 +872,16 @@ class OpenClawAdapter(BackendAdapter):
         typed_error = backend_context_overflow_from_proxy_payload(payload)
         if typed_error is not None:
             raise typed_error
+
+    async def _raise_if_proxy_rollout_invalidated(self) -> None:
+        if self._proxy is None:
+            return
+        payload = await self._proxy.consume_rollout_invalidated_error()
+        if payload is None:
+            return
+        error = payload.get("error") or "rollout_invalidated"
+        message = payload.get("message") or "Dressage rollout was invalidated."
+        raise BackendTransportError(f"Dressage proxy {error}: {message}")
 
 
 def _maybe_int(value: Any) -> int | None:

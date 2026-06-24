@@ -16,6 +16,21 @@ from typing import Any
 
 from dressage.training.log_helpers import compute_trajectory_mean_raw_reward
 
+_STALENESS_WANDB_METRICS_DEFINED = False
+
+
+def _define_staleness_wandb_metrics(args: Any) -> None:
+    global _STALENESS_WANDB_METRICS_DEFINED
+    if _STALENESS_WANDB_METRICS_DEFINED or not getattr(args, "use_wandb", False):
+        return
+
+    import wandb
+
+    if wandb.run is None:
+        return
+    wandb.define_metric("staleness/*", step_metric="rollout/step")
+    _STALENESS_WANDB_METRICS_DEFINED = True
+
 
 def _sample_has_trainable_loss(sample: Any) -> bool:
     if getattr(sample, "remove_sample", False):
@@ -51,6 +66,8 @@ def log_rollout_data(
     metric rides through ``log_dict = {**(rollout_extra_metrics or {})}``
     in slime's ``_log_rollout_data``.
     """
+    _define_staleness_wandb_metrics(args)
+
     parent_traj_ids: list[str] = []
     segment_indices: list[int] = []
     raw_rewards: list[float] = []

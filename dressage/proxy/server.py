@@ -68,6 +68,16 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _non_negative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be greater than or equal to 0")
+    return parsed
+
+
 def _real_token_version(value: Any) -> str | None:
     if value is None:
         return None
@@ -88,6 +98,71 @@ def _session_real_versions(session: Session) -> set[str]:
             if version is not None:
                 versions.add(version)
     return versions
+
+
+def _ordered_real_versions(values: list[Any]) -> list[str]:
+    versions: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        version = _real_token_version(value)
+        if version is None or version in seen:
+            continue
+        versions.append(version)
+        seen.add(version)
+    return versions
+
+
+def _session_response_versions(session: Session) -> list[Any]:
+    values: list[Any] = []
+    for step in session.steps:
+        values.extend(step.response_versions)
+    return values
+
+
+def _raise_if_partial_version_span_exceeded(
+    *,
+    session: Session,
+    candidate_versions: list[Any],
+    partial_rollout: bool,
+    max_partial_rollout_preempts: int | None,
+) -> None:
+    if not partial_rollout or max_partial_rollout_preempts is None:
+        return
+    versions = _ordered_real_versions(
+        [*_session_response_versions(session), *candidate_versions]
+    )
+    version_span = len(versions)
+    version_switches = max(0, version_span - 1)
+    if version_switches <= max_partial_rollout_preempts:
+        return
+    logger.warning(
+        "reject partial rollout: error=partial_rollout_staleness_exceeded "
+        "session_id=%s instance_id=%s version_span=%s version_switches=%s "
+        "max_preempts=%s versions=%s",
+        session.session_id,
+        session.instance_id,
+        version_span,
+        version_switches,
+        max_partial_rollout_preempts,
+        versions,
+    )
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "error": "partial_rollout_staleness_exceeded",
+            "message": (
+                "Partial rollout model version span exceeded limit; "
+                "rejecting the trajectory instead of continuing it."
+            ),
+            "versions": versions,
+            "version_span": version_span,
+            "version_switches": version_switches,
+            "max_preempts": max_partial_rollout_preempts,
+            "max_version_span": max_partial_rollout_preempts + 1,
+            "session_id": session.session_id,
+            "instance_id": session.instance_id,
+        },
+    )
 
 
 def _raise_if_cross_version_trajectory(
@@ -405,11 +480,14 @@ def create_app(
     dynamic_max_tokens: bool = True,
     use_rollout_routing_replay: bool = False,
     partial_rollout: bool = False,
+    max_partial_rollout_preempts: int | None = None,
 ) -> FastAPI:
     """Create the Dressage proxy FastAPI app."""
 
     if context_window is not None and context_window <= 0:
         raise ValueError("context_window must be greater than 0 when provided")
+    if max_partial_rollout_preempts is not None and max_partial_rollout_preempts < 0:
+        raise ValueError("max_partial_rollout_preempts must be greater than or equal to 0")
     if trajectory_build_mode not in {"last_step", "concat"}:
         raise ValueError(
             "trajectory_build_mode must be 'last_step' or 'concat', "
@@ -1271,6 +1349,13 @@ def create_app(
                 candidate_versions=[*response_versions, response_version, request_version],
                 partial_rollout=partial_rollout,
             )
+            if not output_overflow:
+                _raise_if_partial_version_span_exceeded(
+                    session=session,
+                    candidate_versions=response_versions,
+                    partial_rollout=partial_rollout,
+                    max_partial_rollout_preempts=max_partial_rollout_preempts,
+                )
             if session.rollout_epoch is None:
                 session.rollout_epoch = router_response.rollout_epoch
             prompt_versions = [_INPUT_TOKEN_VERSION] * len(input_ids)
@@ -1591,6 +1676,7 @@ def create_app(
                 "dynamic_max_tokens": dynamic_max_tokens,
                 "use_rollout_routing_replay": use_rollout_routing_replay,
                 "partial_rollout": partial_rollout,
+                "max_partial_rollout_preempts": max_partial_rollout_preempts,
             },
         }
 
@@ -1687,6 +1773,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow interrupted SGLang generations to resume from partial output.",
     )
+    parser.add_argument(
+        "--max-partial-rollout-preempts",
+        type=_non_negative_int,
+        default=None,
+        help="Maximum model weight version switches allowed for one partial-rollout session.",
+    )
     return parser.parse_args()
 
 
@@ -1718,6 +1810,7 @@ def main() -> None:
         dynamic_max_tokens=args.dynamic_max_tokens,
         use_rollout_routing_replay=args.use_rollout_routing_replay,
         partial_rollout=args.dressage_partial_rollout,
+        max_partial_rollout_preempts=args.max_partial_rollout_preempts,
     )
     uvicorn.run(app, host=args.host, port=args.port)
 

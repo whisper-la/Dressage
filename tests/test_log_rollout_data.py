@@ -9,10 +9,12 @@ math lives.
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
 
+import dressage.rollout.log_rollout as log_rollout_module
 from dressage.rollout.log_rollout import log_rollout_data
 from dressage.training.log_helpers import compute_trajectory_mean_raw_reward
 
@@ -49,6 +51,26 @@ def test_rollout_hook_filters_no_loss_samples_from_trajectory_mean():
 
     assert log_rollout_data(0, SimpleNamespace(), samples, extra_metrics, 0.0) is False
     assert extra_metrics["rollout/raw_reward_trajectory_mean"] == pytest.approx(1.0)
+
+
+def test_rollout_hook_defines_staleness_wandb_step_metric(monkeypatch):
+    calls = []
+
+    class FakeWandb:
+        run = object()
+
+        @staticmethod
+        def define_metric(name, **kwargs):
+            calls.append((name, kwargs))
+
+    monkeypatch.setitem(sys.modules, "wandb", FakeWandb)
+    monkeypatch.setattr(log_rollout_module, "_STALENESS_WANDB_METRICS_DEFINED", False)
+
+    args = SimpleNamespace(use_wandb=True)
+    assert log_rollout_data(0, args, [], {}, 0.0) is False
+    assert log_rollout_data(1, args, [], {}, 0.0) is False
+
+    assert calls == [("staleness/*", {"step_metric": "rollout/step"})]
 
 
 def test_single_segment_trajectories():
@@ -135,4 +157,3 @@ def test_length_mismatch_raises():
         compute_trajectory_mean_raw_reward(["t1", "t2"], [1.0], [0, 0])
     with pytest.raises(ValueError):
         compute_trajectory_mean_raw_reward(["t1", "t2"], [1.0, 0.0], [0])
-

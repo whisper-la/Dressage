@@ -339,6 +339,12 @@ class GenerationController:
                 active.state = "quiesced"
                 active.quiesced_event.set()
 
+            if preempted:
+                if not self._partial_rollout:
+                    raise GenerationPreempted(
+                        "SGLang generation was interrupted while partial rollout resume is disabled"
+                    )
+
             if (
                 context_window is not None
                 and len(input_ids) + len(generated_ids) > context_window
@@ -359,10 +365,6 @@ class GenerationController:
 
             if not preempted:
                 break
-            if not self._partial_rollout:
-                raise GenerationPreempted(
-                    "SGLang generation was interrupted while partial rollout resume is disabled"
-                )
 
             self._suspended_generations += 1
             try:
