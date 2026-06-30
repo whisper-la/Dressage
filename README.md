@@ -21,7 +21,8 @@ Dressage lets you train diverse types of LLM agents that use real tools — like
 
 ## 📢 News
 
-- **[2026/06]**  **Dressage is now open source!**
+- **[2026/06/30]**  Released [whitebox agent training curves](dressage/recipes/README.md) and [true staleness control](docs/staleness.md).
+- **[2026/06/20]**  **Dressage is now open source!**
 
 
 ## 💡 Technical Highlights
