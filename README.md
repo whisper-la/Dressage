@@ -89,12 +89,15 @@ proxy.finalize_session → trajectory/read → expand_segments_to_samples → li
 ### Start Docker Environment
 
 ```bash
-docker pull huang3eng/dressage:v0.1.0
+docker pull huang3eng/dressage:latest
 
 docker run --rm --gpus all --ipc=host --shm-size=16g \
   --ulimit memlock=-1 --ulimit stack=67108864 \
-  -it huang3eng/dressage:v0.1.0 /bin/bash
+  -it huang3eng/dressage:latest /bin/bash
 ```
+
+For reproducible environments, pin a dated tag such as
+`huang3eng/dressage:nightly-dev-20260704a`.
 
 ### Prepare Model Checkpoint
 
