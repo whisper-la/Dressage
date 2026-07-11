@@ -48,7 +48,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION}" &
     /usr/local/bin/claude --version && \
     test "$(/usr/local/bin/claude --version | awk '{print $1}')" = "${CLAUDE_CODE_VERSION}"
 
-RUN curl -fsSL https://chatgpt.com/codex/install.sh | \
+RUN curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/install.sh" | \
       CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=/usr/local/bin sh -s -- --release "${CODEX_VERSION}" && \
     codex_resolved="$(command -v codex)" && \
     codex_real="$(readlink -f "${codex_resolved}")" && \

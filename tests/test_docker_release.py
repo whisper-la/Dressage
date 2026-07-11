@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_DOCKERFILE = _REPO_ROOT / "docker" / "Dockerfile"
 _IMAGE_TAG_HELPER = _REPO_ROOT / "docker" / "image_tag.sh"
 _DOCKER_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "docker.yml"
 
@@ -41,6 +42,17 @@ def test_docker_shell_scripts_are_valid() -> None:
         _REPO_ROOT / "docker" / "run.sh",
     ):
         subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_codex_installer_matches_pinned_release() -> None:
+    dockerfile = _DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "ARG CODEX_VERSION=0.142.5" in dockerfile
+    assert (
+        "https://github.com/openai/codex/releases/download/"
+        "rust-v${CODEX_VERSION}/install.sh"
+    ) in dockerfile
+    assert "https://chatgpt.com/codex/install.sh" not in dockerfile
 
 
 def test_default_image_tag_uses_nightly_date_format() -> None:
