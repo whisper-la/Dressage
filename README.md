@@ -212,19 +212,22 @@ docker/run.sh      # Run with --gpus all --network host --ipc host --privileged
 
 The image includes bubblewrap, opencode, openclaw, Claude Code, Codex CLI, Dressage, and BlackboxServer. `--privileged` is required for bubblewrap inside containers. See [docker/README.md](docker/README.md) for details.
 
-## 👥 Team
+## 👥 Authors and Contributors
 
-Dressage is built by the **Alibaba Accio** team.
+Dressage is developed and maintained by its authors and contributors.
+
+**Author**:
+Liangmeng Huang (huang3eng@gmail.com)
 
 **Core Contributors** (alphabetical):
-Liangmeng Huang (huang3eng@gmail.com)
+Hao Dong (dh20373967@gmail.com)
 Qingchuan Li (lqcustc@gmail.com)
 Hongwei Xue (xuehongwe@gmail.com)
 Shilin Yan (tattoo.ysl@gmail.com)
 For academic collaborations, citations, or technical inquiries, please contact us.
 
 **Contributors** (alphabetical): 
-Wenhui Chen, Hao Dong, Xueyuan Han, Jing He, Hongyu Li, Junbo Li, Zicheng Liu, Senyu Zhang, Guannan Zhang.
+Wenhui Chen, Xueyuan Han, Jing He, Hongyu Li, Junbo Li, Zicheng Liu, Sibo Wei, Senyu Zhang, Guannan Zhang.
 
 To cite Dressage:
 
@@ -256,7 +259,7 @@ Contributions are welcome! If you have suggestions for new features, performance
 
 ## 🙏 Acknowledgements
 
-Dressage is built by the **Alibaba Accio** team. We gratefully acknowledge:
+We gratefully acknowledge:
 
 - **[slime](https://github.com/THUDM/slime)** (THUDM, Tsinghua University) — The upstream RL post-training framework that Dressage builds upon. slime provides the foundational Megatron training loop, Ray rollout management, and SGLang inference integration.
 - **[SGLang](https://github.com/sgl-project/sglang)** — High-performance inference engine powering the generation backend.
