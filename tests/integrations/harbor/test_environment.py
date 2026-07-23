@@ -94,6 +94,8 @@ async def test_agent_and_verifier_are_network_and_filesystem_isolated(
         assert (
             "--unshare-net" in agent_command and "--unshare-net" not in verifier_command
         )
+        assert "--unshare-pid" in agent_command
+        assert "--unshare-pid" in verifier_command
         assert _contains(agent_command, ["--bind", str(agent._rootfs), "/"])
         assert not _contains(agent_command, ["--ro-bind", "/", "/"])
         assert list((agent._rootfs / "tests").iterdir()) == []
@@ -181,6 +183,7 @@ def test_preflight_uses_container_compatible_proc(monkeypatch, tmp_path):
     )
     environment_module.DressageEnvironment.preflight()
     assert len(commands) == 1
+    assert "--unshare-pid" in commands[0]
     assert _contains(commands[0], ["--ro-bind", "/proc", "/proc"])
     assert "--proc" not in commands[0]
 
