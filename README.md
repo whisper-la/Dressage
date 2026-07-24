@@ -204,6 +204,7 @@ For the end-to-end data preparation and launch commands for these recipes, see t
 - **[Recipes](docs/recipes.md)** — ALFWorld and HotpotQA example agents, build-your-own guide
 - **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)** — Data preparation and launch commands for ALFWorld and HotpotQA whitebox agents
 - **[Quick Start](docs/quickstart.md)** — Step-by-step setup, configuration reference, troubleshooting
+- **Dressage Claw + OpenClaw** — [experiment report](docs/blackbox-dressage-claw-experiment-en.md) ([中文](docs/blackbox-dressage-claw-experiment-zh.md))
 
 ## 🐳 Docker
 

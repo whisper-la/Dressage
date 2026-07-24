@@ -145,12 +145,13 @@ def token_build_defaults(
     token_build_model: str | None = None,
 ) -> TokenBuildDefaults:
     model = (token_build_model or DEFAULT_TOKEN_BUILD_MODEL).strip().lower()
-    if model != "qwen3_5":
+    supported_models = {"qwen3_5", "qwen3_6"}
+    if model not in supported_models:
         raise ValueError(
             "unsupported token_build_model="
-            f"{token_build_model!r}; expected 'qwen3_5'"
+            f"{token_build_model!r}; expected one of {sorted(supported_models)!r}"
         )
-    tito_model = "qwen3_5" if token_build_mode == "tito" else None
+    tito_model = model if token_build_mode == "tito" else None
     return TokenBuildDefaults(
         model_mask_type="qwen3_5",
         model_tool_call_type="qwen3_5",

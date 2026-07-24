@@ -625,12 +625,16 @@ def create_app(
     effective_model_mask_type = model_mask_type
     if token_build_mode == "tito":
         if tito_model is None:
-            raise ValueError("tito mode requires tito_model='qwen3_5'")
-        if tito_model != "qwen3_5":
+            raise ValueError("tito mode requires a supported tito_model")
+        from .tito import (
+            SUPPORTED_TITO_MODELS,
+            configure_tito_chat_template,
+            create_tito_tokenizer,
+        )
+        if tito_model not in SUPPORTED_TITO_MODELS:
             raise ValueError(f"Unsupported TITO model type: {tito_model!r}")
-        from .tito import create_tito_tokenizer, load_fixed_template
 
-        tokenizer.chat_template = load_fixed_template(tito_model)
+        configure_tito_chat_template(tokenizer, model_type=tito_model)
         tito_tokenizer = create_tito_tokenizer(tokenizer, model_type=tito_model)
         effective_model_mask_type = None
 
@@ -2160,7 +2164,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tito-model",
-        choices=("qwen3_5",),
+        choices=("qwen3_5", "qwen3_6"),
         default=None,
         help="TITO model type, required when --token-build-mode=tito.",
     )

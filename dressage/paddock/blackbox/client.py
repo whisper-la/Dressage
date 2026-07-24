@@ -52,6 +52,7 @@ class BlackboxServerClient:
         backend_options: Any,
         server_config: dict[str, Any],
         router_api_path: str = "/v1",
+        system_prompt_file: str | None = None,
     ) -> dict[str, Any]:
         payload = {
             "blackbox_type": blackbox_type,
@@ -62,6 +63,8 @@ class BlackboxServerClient:
             "backend_options": backend_options,
             "server_config": server_config,
         }
+        if system_prompt_file is not None:
+            payload["system_prompt_file"] = system_prompt_file
         response = await self._post_agent_with_retry(
             endpoint,
             "/v1/rollout/register",

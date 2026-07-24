@@ -17,3 +17,8 @@
 !hotpotqa/build_index.py
 !hotpotqa/corpus/
 !hotpotqa/corpus/.gitignore
+
+!dressage_claw/
+!dressage_claw/build_e2b_blackbox_template.py
+!dressage_claw/prepare_dressage_claw_data.py
+!dressage_claw/convert_dressage_claw_to_parquet.py
