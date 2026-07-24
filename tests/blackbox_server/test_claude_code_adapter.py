@@ -302,7 +302,14 @@ def test_run_claude_turn_uses_large_stdout_stream_limit(
     async def run_test() -> None:
         binding_context = _make_binding_context(tmp_path)
         runtime_dir = Path(binding_context.binding.runtime_dir)
-        options = ClaudeCodeBackendOptions.model_validate({"executable": "/bin/claude"})
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        options = ClaudeCodeBackendOptions.model_validate(
+            {
+                "executable": "/bin/claude",
+                "working_directory": str(project_dir),
+            }
+        )
         adapter = ClaudeCodeAdapter()
         adapter._binding_context = binding_context
         adapter._options = options
@@ -334,6 +341,7 @@ def test_run_claude_turn_uses_large_stdout_stream_limit(
             await adapter.shutdown()
 
         assert captured_kwargs["limit"] == _CLAUDE_CODE_STDOUT_STREAM_LIMIT
+        assert captured_kwargs["cwd"] == str(project_dir)
         assert outputs[0].content == "done"
         assert usage.steps == 1
 

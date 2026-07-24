@@ -115,6 +115,7 @@ class ClaudeCodeBackendOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     executable: str | None = None
+    working_directory: str | None = Field(default=None, min_length=1)
     model: ClaudeCodeModelOptions = Field(default_factory=ClaudeCodeModelOptions)
     max_turns: int = Field(default=20, gt=0)
     permission_mode: Literal[
@@ -294,6 +295,15 @@ class ClaudeCodeAdapter(BackendAdapter):
         self._options = options
         runtime_dir = Path(binding_context.binding.runtime_dir)
         self._prepare_runtime_dirs(runtime_dir)
+        working_directory = _resolve_claude_code_working_directory(
+            options,
+            runtime_dir,
+        )
+        if not working_directory.is_dir():
+            raise BackendProtocolError(
+                "claude_code working_directory does not exist or is not a "
+                f"directory: {working_directory}"
+            )
         system_prompt_path = self._prepare_system_prompt(binding_context, options)
         await self._start_proxy(binding_context, options)
         assert self._proxy_port is not None
@@ -516,7 +526,11 @@ class ClaudeCodeAdapter(BackendAdapter):
         shutil.copy2(source, target)
         if options.system_prompt_mode == "claude_md":
             claude_md = (
-                Path(binding_context.binding.runtime_dir) / "workspace" / "CLAUDE.md"
+                _resolve_claude_code_working_directory(
+                    options,
+                    Path(binding_context.binding.runtime_dir),
+                )
+                / "CLAUDE.md"
             )
             claude_md.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
             return None
@@ -541,7 +555,10 @@ class ClaudeCodeAdapter(BackendAdapter):
             raise BackendProcessError("rollout proxy has not been initialized.")
         runtime_dir = Path(self._binding_context.binding.runtime_dir)
         logs_dir = runtime_dir / "logs"
-        workspace_dir = runtime_dir / "workspace"
+        workspace_dir = _resolve_claude_code_working_directory(
+            self._options,
+            runtime_dir,
+        )
         if self._stdout_handle is None:
             self._stdout_handle = open(logs_dir / "claude_code.stdout.log", "ab")
         if self._stderr_handle is None:
@@ -822,6 +839,20 @@ def _validate_claude_code_runtime_options(options: ClaudeCodeBackendOptions) -> 
         "claude_code permission_mode=bypassPermissions cannot run as root/sudo. "
         "Use permission_mode=default or permission_mode=acceptEdits, or run BlackboxServer as a non-root user."
     )
+
+
+def _resolve_claude_code_working_directory(
+    options: ClaudeCodeBackendOptions,
+    runtime_dir: Path,
+) -> Path:
+    """Resolve an optional project cwd without changing the existing default."""
+
+    if options.working_directory is None:
+        return runtime_dir / "workspace"
+    configured = Path(options.working_directory).expanduser()
+    if configured.is_absolute():
+        return configured
+    return runtime_dir / "workspace" / configured
 
 
 def _claude_code_stderr_remediation(stderr_tail: str | None) -> str | None:
