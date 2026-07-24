@@ -1,7 +1,6 @@
 # SWE-Gym + Claude Code Quickstart
 
-[中文版](swegym-claude-code-quickstart-zh.md) ·
-[Full experiment guide](blackbox-swegym-claude-code-experiment-en.md)
+[中文版](swegym-claude-code-quickstart-zh.md)
 
 This quickstart prepares the public Dressage SWE-Gym recipe, runs Claude Code
 inside E2B task templates, evaluates every patch in a fresh sandbox, and starts
@@ -54,8 +53,8 @@ mapping each Docker image to its E2B template name:
 }
 ```
 
-See the [full experiment guide](blackbox-swegym-claude-code-experiment-en.md)
-for the image enumeration and E2B template builder.
+See the repository's [sandbox documentation](sandbox.md) for the public E2B
+template contract.
 
 ## 3. Convert SWE-Gym data
 
@@ -130,9 +129,7 @@ bash examples/scripts/run_swegym_claude_code_grpo_sync.sh
 ```
 
 `DRESSAGE_PROXY_URL` must be an HTTP(S) endpoint that the E2B sandboxes can
-reach. Expose the Dressage proxy through your cluster ingress or a secure
-tunnel; a node-private address returned by `hostname -I` is generally not
-reachable from E2B.
+reach.
 
 The launcher explicitly selects
 `dressage.rollout.generate.blackbox_dispatch_swegym.generate`. The generic
@@ -143,19 +140,3 @@ Reference defaults reproduce the reviewed experiment shape: TP2/CP4,
 8 prompts × 16 samples, global batch size 128, 500 rollout updates, normalized
 GRPO advantages, vanilla token-level TIS, and low-variance KL loss coefficient
 `0.001`. Override infrastructure and topology through environment variables.
-
-## Common failures
-
-- `unsupported DRESSAGE_SANDBOX_PROVIDER`: use the public `e2b` provider. A
-  custom provider must be injected through `DRESSAGE_PADDOCK_CLASS`.
-- Template creation fails: confirm every `metadata.sandbox_image` is an E2B
-  template name, not the original Docker image.
-- Blackbox Server is unhealthy: check that the template listens on `31000` and
-  that `DRESSAGE_E2B_BLACKBOX_PORT=31000` reaches Ray workers.
-- Reward is always zero: inspect `metadata.swegym_eval`,
-  `metadata.execute_cmds`, and the full HTTP error body. Empty patches,
-  prohibited test edits, patch-application failures, evaluator failures, and
-  missing reward markers intentionally score zero.
-- Integrity overrides a passing reward: inspect
-  `metadata.swegym_integrity`; remote answer retrieval and writes to protected
-  test or pytest paths are deliberately rejected.

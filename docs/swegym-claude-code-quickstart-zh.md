@@ -1,7 +1,6 @@
 # SWE-Gym + Claude Code 快速开始
 
-[English](swegym-claude-code-quickstart-en.md) ·
-[完整实验说明](blackbox-swegym-claude-code-experiment-zh.md)
+[English](swegym-claude-code-quickstart-en.md)
 
 本文说明如何使用公开版 Dressage 准备 SWE-Gym 数据，在 E2B task template
 中运行 Claude Code，对每个 patch 使用全新沙箱评测，并启动 Qwen3.5-4B
@@ -54,8 +53,7 @@ Docker image 到 E2B template name 的 JSON 映射：
 }
 ```
 
-如何枚举 image 和构建 template，见
-[完整实验说明](blackbox-swegym-claude-code-experiment-zh.md)。
+公开 E2B template 的接口要求见仓库的 [sandbox 文档](sandbox.md)。
 
 ## 3. 转换 SWE-Gym 数据
 
@@ -126,9 +124,7 @@ export DRESSAGE_PROXY_URL=https://proxy.example.com
 bash examples/scripts/run_swegym_claude_code_grpo_sync.sh
 ```
 
-`DRESSAGE_PROXY_URL` 必须是 E2B 沙箱能够访问的 HTTP(S) 地址。请通过集群
-ingress 或安全隧道暴露 Dressage proxy；`hostname -I` 返回的节点私网地址通常
-无法从 E2B 访问。
+`DRESSAGE_PROXY_URL` 必须是 E2B 沙箱能够访问的 HTTP(S) 地址。
 
 launcher 会显式选择
 `dressage.rollout.generate.blackbox_dispatch_swegym.generate`。通用 blackbox
@@ -139,17 +135,3 @@ dispatch 不包含 SWE-Gym 判断；fresh evaluation 和 trajectory integrity
 batch size 128、500 次 rollout update、normalized GRPO advantage、vanilla
 token-level TIS，以及系数为 `0.001` 的 low-variance KL loss。基础设施和
 拓扑可通过环境变量覆盖。
-
-## 常见问题
-
-- `unsupported DRESSAGE_SANDBOX_PROVIDER`：公开内置路径使用 `e2b`；自定义
-  provider 应通过 `DRESSAGE_PADDOCK_CLASS` 注入。
-- Template 创建失败：确认每条 `metadata.sandbox_image` 是 E2B template
-  name，而不是原始 Docker image。
-- Blackbox Server 不健康：确认 template 监听 `31000`，并且
-  `DRESSAGE_E2B_BLACKBOX_PORT=31000` 已传入 Ray worker。
-- Reward 始终为零：检查 `metadata.swegym_eval`、
-  `metadata.execute_cmds` 和完整 HTTP error body。空 patch、修改受保护测试、
-  patch 应用失败、评测失败或 reward marker 缺失都会按设计得到零分。
-- 通过评测后被 integrity 归零：检查 `metadata.swegym_integrity`；从远端
-  获取现成答案，以及写入受保护的测试或 pytest 配置路径都会被拒绝。

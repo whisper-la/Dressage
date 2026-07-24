@@ -31,8 +31,7 @@ REWARD_MARKER = "DRESSAGE_SWEGYM_REWARD_JSON="
 _POLL_PENDING_MARKER = "__DRESSAGE_SWEGYM_EVAL_PENDING__"
 _POLL_DONE_MARKER = "__DRESSAGE_SWEGYM_EVAL_DONE__="
 _POLL_TRUNCATED_MARKER = "__DRESSAGE_SWEGYM_EVAL_TRUNCATED__"
-_DEFAULT_POLL_OUTPUT_LIMIT = 65536
-_METADATA_OUTPUT_LIMIT = 16384
+_DEFAULT_POLL_OUTPUT_LIMIT = 16384
 
 
 def use_fresh_swegym_eval(metadata: dict[str, Any]) -> bool:
@@ -209,17 +208,14 @@ async def _execute_polled_swegym_harness(
     token = uuid.uuid4().hex
     output_path = f"/tmp/dressage_swegym_eval_{token}.out"
     done_path = f"/tmp/dressage_swegym_eval_{token}.done"
-    runner_path = f"/tmp/dressage_swegym_eval_{token}.sh"
     output_limit = _DEFAULT_POLL_OUTPUT_LIMIT
     runner = (
         f"{command.cmd}; rc=$?; "
-        f'printf \'%s\\n\' "$rc" > {shlex.quote(done_path)}; exit "$rc"'
+        f"printf '%s\\n' \"$rc\" > {shlex.quote(done_path)}; exit \"$rc\""
     )
     start_cmd = (
-        f"rm -f {shlex.quote(output_path)} {shlex.quote(done_path)} "
-        f"{shlex.quote(runner_path)}; "
-        f"printf %s {shlex.quote(runner)} > {shlex.quote(runner_path)}; "
-        f"nohup bash {shlex.quote(runner_path)} "
+        f"rm -f {shlex.quote(output_path)} {shlex.quote(done_path)}; "
+        f"nohup bash -lc {shlex.quote(runner)} "
         f"> {shlex.quote(output_path)} 2>&1 < /dev/null & echo $!"
     )
     start_result = await maybe_await(
@@ -297,11 +293,6 @@ async def _execute_polled_swegym_harness(
     stdout_truncated = stdout.startswith(truncated_prefix)
     if stdout_truncated:
         stdout = stdout[len(truncated_prefix) :]
-    stdout, metadata_truncated = _truncated_metadata_text(
-        stdout,
-        limit=_METADATA_OUTPUT_LIMIT,
-    )
-    stdout_truncated = stdout_truncated or metadata_truncated
     diagnostics = {
         "background_polled": True,
         "poll_attempts": attempts,
@@ -325,13 +316,6 @@ async def _execute_polled_swegym_harness(
         }
     )
     metadata.setdefault("swegym_eval", {}).update(diagnostics)
-
-
-def _truncated_metadata_text(value: Any, *, limit: int) -> tuple[str, bool]:
-    text = "" if value is None else str(value)
-    if len(text) <= limit:
-        return text, False
-    return text[-limit:], True
 
 
 def _extract_patch_command(workdir: str, *, base_commit: str = "") -> str:
@@ -453,12 +437,7 @@ def _apply_patch_command(
     patch_path = "/tmp/dressage_swegym_model.patch"
     decoder = (
         "import base64,zlib,sys;"
-        "open(sys.argv[1],'wb').write("
-        "zlib.decompress(base64.b64decode(sys.stdin.buffer.read())))"
-    )
-    decode_patch = (
-        f"printf %s {shlex.quote(patch_b64)} | "
-        f"python3 -c {shlex.quote(decoder)} {shlex.quote(patch_path)}"
+        "open(sys.argv[1],'wb').write(zlib.decompress(base64.b64decode(sys.argv[2])))"
     )
     prepare_worktree = f"cd {shlex.quote(workdir)}"
     if base_commit:
@@ -468,12 +447,10 @@ def _apply_patch_command(
         # the disposable evaluation sandbox to the dataset baseline first.
         base = shlex.quote(base_commit)
         prepare_worktree += f" && git reset --hard {base} && git clean -fd"
-    return " && ".join(
-        (
-            decode_patch,
-            prepare_worktree,
-            f"git apply --binary -v {shlex.quote(patch_path)}",
-        )
+    return (
+        f"python3 -c {shlex.quote(decoder)} {shlex.quote(patch_path)} {shlex.quote(patch_b64)}"
+        f" && {prepare_worktree}"
+        f" && git apply --binary -v {shlex.quote(patch_path)}"
     )
 
 
@@ -497,13 +474,11 @@ def _prohibited_patch_paths(patch: str) -> list[str]:
             continue
         if len(fields) < 4:
             continue
-        for path in fields[2:4]:
-            if path == "/dev/null":
-                continue
-            if path.startswith(("a/", "b/")):
-                path = path[2:]
-            if _is_test_or_harness_path(path):
-                paths.add(path)
+        path = fields[3]
+        if path.startswith("b/"):
+            path = path[2:]
+        if _is_test_or_harness_path(path):
+            paths.add(path)
     return sorted(paths)
 
 
@@ -516,14 +491,7 @@ def _is_test_or_harness_path(path: str) -> bool:
         any(part in {"test", "tests", "testing", "r2e_tests"} for part in lowered_parts)
         or basename.startswith("test_")
         or basename.endswith("_test.py")
-        or basename
-        in {
-            "conftest.py",
-            "pytest.ini",
-            "tox.ini",
-            "setup.cfg",
-            "pyproject.toml",
-        }
+        or basename in {"conftest.py", "pytest.ini", "tox.ini"}
     )
 
 

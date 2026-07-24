@@ -204,7 +204,7 @@ For the end-to-end data preparation and launch commands for these recipes, see t
 - **[Training](docs/training.md)** — Multi-segment, TITO, prompt-equal aggregation, partial rollout
 - **[Harbor Integration](docs/harbor.md)** — Harbor rollouts, trainable trajectory capture, and synchronous slime training
 - **[Recipes](docs/recipes.md)** — ALFWorld and HotpotQA example agents, build-your-own guide
-- **SWE-Gym + Claude Code** — [Quickstart](docs/swegym-claude-code-quickstart-en.md) ([中文](docs/swegym-claude-code-quickstart-zh.md)) and [experiment report](docs/blackbox-swegym-claude-code-experiment-en.md) ([中文](docs/blackbox-swegym-claude-code-experiment-zh.md))
+- **SWE-Gym + Claude Code** — [Quickstart](docs/swegym-claude-code-quickstart-en.md) ([中文](docs/swegym-claude-code-quickstart-zh.md))
 - **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)** — Data preparation and launch commands for ALFWorld and HotpotQA whitebox agents
 - **[Quick Start](docs/quickstart.md)** — Step-by-step setup, configuration reference, troubleshooting
 

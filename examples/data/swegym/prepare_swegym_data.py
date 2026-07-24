@@ -176,7 +176,7 @@ def claude_code_backend_options(
     permission_mode: str,
     working_directory: str,
 ) -> dict[str, Any]:
-    """Return the Claude Code options verified by this experiment."""
+    """Return the Claude Code options used by this recipe."""
 
     return {
         "working_directory": working_directory,
@@ -216,8 +216,7 @@ def wheel_bootstrap(wheel_url: str, *, workdir: str) -> list[str]:
     return [
         _claude_install_command(workdir),
         "pip install --no-cache-dir " + shlex.quote(wheel_url),
-        "env BBS_HOST=0.0.0.0 BBS_PORT=31000 "
-        "BBS_RUNTIME_ROOT=/tmp/blackbox_server "
+        "env BBS_PORT=31000 "
         "python -m blackbox_server.main > /tmp/blackbox-server.log 2>&1",
     ]
 
@@ -241,8 +240,7 @@ def packaged_bootstrap(
         + shlex.quote(runtime_url)
         + " | tar -xz -C /opt/cc-runtime --strip-components=1; "
         "/usr/local/bin/claude --version; "
-        "export BBS_HOST=0.0.0.0 BBS_PORT=31000 "
-        "BBS_RUNTIME_ROOT=/tmp/blackbox_server; "
+        "export BBS_PORT=31000; "
         "exec /opt/cc-runtime/python/bin/python3 -c "
         + shlex.quote(
             "import sys; "
@@ -425,42 +423,23 @@ def build_eval_command(
     ).decode()
     instance_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(instance["instance_id"]))
     eval_path = f"/tmp/dressage_swegym_eval_{instance_slug}.sh"
-    parser_path = f"/tmp/dressage_swegym_parser_{instance_slug}.py"
     log_path = f"/tmp/dressage_swegym_eval_{instance_slug}.log"
-    return "; ".join(
-        [
-            _compressed_payload_stdin_command(
-                script_b64,
-                eval_path,
-            ),
-            _compressed_payload_stdin_command(
-                parser_b64,
-                parser_path,
-            ),
-            f"chmod 0700 {shlex.quote(eval_path)}",
-            f"timeout {int(timeout)} bash {shlex.quote(eval_path)} "
-            f">{shlex.quote(log_path)} 2>&1",
-            "RC=$?",
-            f"python3 {shlex.quote(parser_path)} {shlex.quote(log_path)} "
-            f"{shlex.quote(expected_b64)} {shlex.quote(str(instance['repo']))} \"$RC\"",
-        ]
-    )
-
-
-def _compressed_payload_stdin_command(
-    payload_b64: str,
-    output_path: str,
-) -> str:
-    """Pipe a compressed payload through a shell builtin instead of a large argv."""
-
     decoder = (
         "import base64,zlib,sys;"
-        "open(sys.argv[1],'wb').write("
-        "zlib.decompress(base64.b64decode(sys.stdin.buffer.read())))"
+        "open(sys.argv[1],'wb').write(zlib.decompress(base64.b64decode(sys.argv[2])))"
+    )
+    parser = (
+        "import base64,zlib;exec(zlib.decompress(base64.b64decode("
+        + repr(parser_b64)
+        + ")))"
     )
     return (
-        f"printf %s {shlex.quote(payload_b64)} | "
-        f"python3 -c {shlex.quote(decoder)} {shlex.quote(output_path)}"
+        f"python3 -c {shlex.quote(decoder)} {shlex.quote(eval_path)} {shlex.quote(script_b64)}; "
+        f"chmod 0700 {shlex.quote(eval_path)}; "
+        f"timeout {int(timeout)} bash {shlex.quote(eval_path)} >{shlex.quote(log_path)} 2>&1; "
+        "RC=$?; "
+        f"python3 -c {shlex.quote(parser)} {shlex.quote(log_path)} "
+        f"{shlex.quote(expected_b64)} {shlex.quote(str(instance['repo']))} \"$RC\""
     )
 
 
@@ -597,8 +576,6 @@ def output_row(
             ],
         },
     }
-    if sandbox_image != docker_image:
-        metadata["docker_image"] = docker_image
     if blackbox_type == "claude_code":
         metadata["backend_options"] = claude_code_backend_options(
             max_turns=claude_max_turns,
@@ -628,7 +605,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--download-dir", type=Path, default=Path("data/swegym_raw"))
     parser.add_argument("--swegym-package-root", type=Path)
     parser.add_argument("--workdir", default="/testbed")
-    parser.add_argument("--blackbox-type", default="opencode")
+    parser.add_argument("--blackbox-type", default="claude_code")
     parser.add_argument(
         "--provider",
         choices=SANDBOX_PROVIDERS,
