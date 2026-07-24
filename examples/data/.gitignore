@@ -6,6 +6,9 @@
 !dressage_dapo_prompts.jsonl
 !dressage_dapo_prompts_e2b.jsonl
 
+!swegym/
+!swegym/prepare_swegym_data.py
+
 !alfworld/
 !alfworld/prepare_alfworld.py
 !alfworld/alfworld_data/

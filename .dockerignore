@@ -20,6 +20,8 @@ log/
 tmp/
 blackbox_server_runtime/
 dressage-blackbox-runtime/
+data/
+outputs/
 
 .env
 .env.*

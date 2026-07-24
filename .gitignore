@@ -38,6 +38,10 @@ tmp/
 blackbox_server_runtime/
 dressage-blackbox-runtime/
 
+# Local datasets, template maps, sandbox artifacts, and experiment outputs
+/data/
+/outputs/
+
 CLAUDE.md
 AGENTS.md
 .claude
