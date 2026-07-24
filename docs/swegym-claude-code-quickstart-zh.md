@@ -1,6 +1,7 @@
 # SWE-Gym + Claude Code 快速开始
 
-[English](swegym-claude-code-quickstart-en.md)
+[English](swegym-claude-code-quickstart-en.md) ·
+[完整实验说明](blackbox-swegym-claude-code-experiment-zh.md)
 
 本文说明如何使用公开版 Dressage 准备 SWE-Gym 数据，在 E2B task template
 中运行 Claude Code，对每个 patch 使用全新沙箱评测，并启动 Qwen3.5-4B
@@ -53,7 +54,8 @@ Docker image 到 E2B template name 的 JSON 映射：
 }
 ```
 
-公开 E2B template 的接口要求见仓库的 [sandbox 文档](sandbox.md)。
+如何枚举 image 和构建 template，见
+[完整实验说明](blackbox-swegym-claude-code-experiment-zh.md)。
 
 ## 3. 转换 SWE-Gym 数据
 

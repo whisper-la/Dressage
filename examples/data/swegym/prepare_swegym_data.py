@@ -542,6 +542,7 @@ def output_row(
         "repo": repo,
         "repo_name": repo.rsplit("/", 1)[-1],
         "base_commit": base_commit,
+        "commit_hash": base_commit,
         "workdir": workdir,
         "task_type": "swe-gym",
         "dataset": DATASET_NAME,
@@ -576,6 +577,8 @@ def output_row(
             ],
         },
     }
+    if sandbox_image != docker_image:
+        metadata["docker_image"] = docker_image
     if blackbox_type == "claude_code":
         metadata["backend_options"] = claude_code_backend_options(
             max_turns=claude_max_turns,

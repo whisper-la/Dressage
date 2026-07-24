@@ -1,6 +1,7 @@
 # SWE-Gym + Claude Code Quickstart
 
-[中文版](swegym-claude-code-quickstart-zh.md)
+[中文版](swegym-claude-code-quickstart-zh.md) ·
+[Full experiment guide](blackbox-swegym-claude-code-experiment-en.md)
 
 This quickstart prepares the public Dressage SWE-Gym recipe, runs Claude Code
 inside E2B task templates, evaluates every patch in a fresh sandbox, and starts
@@ -53,8 +54,8 @@ mapping each Docker image to its E2B template name:
 }
 ```
 
-See the repository's [sandbox documentation](sandbox.md) for the public E2B
-template contract.
+See the [full experiment guide](blackbox-swegym-claude-code-experiment-en.md)
+for the image enumeration and E2B template builder.
 
 ## 3. Convert SWE-Gym data
 
