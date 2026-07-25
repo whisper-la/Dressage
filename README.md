@@ -20,6 +20,7 @@ Dressage lets you train diverse types of LLM agents that use real tools — like
 - [License](#-license)
 
 ## 📢 News
+- **[2026/07/25]** 🔥 **Dressage Claw blackbox RL recipe released.** The recipe provides an end-to-end OpenClaw blackbox RL pipeline with staged grader injection and a reproducible 64K setup. Qwen3.6-35B-A3B trained on [Dressage-Claw](https://huggingface.co/datasets/huang3eng/Dressage-Claw) improves strict Pass^3 on the [ClawEval](https://claw-eval.github.io/) general split from **41.4** to **55.4** (+14.0 points). [Report: English](docs/blackbox-dressage-claw-experiment-en.md) | [中文](docs/blackbox-dressage-claw-experiment-zh.md) | [Training script](examples/scripts/run_dressage_claw_qwen3.6_35b_a3b_sync_4_node.sh)
 - **[2026/07/23] Support for Multi-Teacher OPD (MOPD):** Train a single student across any agent with multiple frozen teachers, routing each dataset to its assigned teacher while serially rotating teachers through shared GPU model buffers. Read the [technical guide](docs/mopd.md).
 - **[2026/07/19]** **Integrated [Harbor](docs/harbor.md) for rollout and training:** Harbor orchestrates task execution and evaluation, while Dressage handles model routing and trajectory collection.
 - **[2026/07/09]** **Multi-Agent Training.** From Timeline to Lineage, **Lineage-aware TITO** builds correct multi-agent training trajectories by reconstructing context inheritance across main-agent and subagent calls. Read the [technical deep dive](https://zhuanlan.zhihu.com/p/2059302405888537724).
