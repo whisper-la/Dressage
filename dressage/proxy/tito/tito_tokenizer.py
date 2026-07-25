@@ -1,4 +1,4 @@
-"""Qwen3.5 TITO tokenizer for lineage-local token construction."""
+"""Qwen3.5/Qwen3.6 TITO tokenizers for concat trajectory construction."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from .template_utils import (
 
 
 _DUMMY_SYSTEM: dict[str, Any] = {"role": "system", "content": "dummy system"}
+_DUMMY_USER: dict[str, Any] = {"role": "user", "content": "dummy user"}
 
 
 def _build_dummy_assistant(tool_responses: list[dict[str, Any]]) -> dict[str, Any]:
@@ -210,3 +211,60 @@ class Qwen35TITOTokenizer:
         ):
             prefix.append(self._newline_id)
         return prefix + incremental
+
+
+class Qwen36TITOTokenizer(Qwen35TITOTokenizer):
+    """Incrementally tokenize append-only Qwen3.6 chat context.
+
+    Qwen3.6 keeps the native template guard that rejects message sequences
+    without a real user query. Use Qwen3.5-style dummy segment diffs, with an
+    added dummy user so the native Qwen3.6 guard stays active.
+    """
+
+    def _tokenize_tool_segment(
+        self,
+        appended_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> list[int]:
+        return self._tokenize_rendered_suffix(
+            [_DUMMY_SYSTEM, _DUMMY_USER, _build_dummy_assistant(appended_messages)],
+            appended_messages,
+            tools=tools,
+        )
+
+    def _tokenize_user_segment(
+        self,
+        appended_message: dict[str, Any],
+        tools: list[dict[str, Any]] | None,
+    ) -> list[int]:
+        return self._tokenize_rendered_suffix(
+            [_DUMMY_SYSTEM, _DUMMY_USER],
+            [appended_message],
+            tools=tools,
+        )
+
+    def tokenize_additional_non_assistant(
+        self,
+        old_messages: list[dict[str, Any]],
+        new_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> list[int]:
+        assert_messages_append_only_with_allowed_roles(
+            old_messages,
+            new_messages,
+            self.allowed_append_roles,
+        )
+        if not old_messages:
+            return self._encode_text(
+                self._render_messages(
+                    new_messages,
+                    add_generation_prompt=True,
+                    tools=tools,
+                )
+            )
+
+        return super().tokenize_additional_non_assistant(
+            old_messages,
+            new_messages,
+            tools,
+        )

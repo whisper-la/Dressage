@@ -51,7 +51,36 @@ class E2BSandboxProvider:
         extra_params = _sandbox_extra_params(spec.env_args)
         template = _template_for_spec(spec, default_template=self.default_template)
         sandbox_cmds = _normalize_sandbox_cmds(spec.env_args.get("sandbox_cmd"))
-        envs = dict(spec.env)
+        has_blackbox_service = any(service.name == "blackbox" for service in spec.services)
+        if has_blackbox_service and self.blackbox_port != 31000:
+            raise ValueError(
+                "E2BSandboxProvider blackbox templates use the fixed internal-compatible "
+                "port 31000; unset DRESSAGE_E2B_BLACKBOX_PORT or set it to 31000"
+            )
+        envs = (
+            {
+                # Match the local bwrap runner for direct E2B commands too.
+                "HOME": "/home/blackbox",
+                "XDG_CONFIG_HOME": "/home/blackbox/.config",
+                "XDG_CACHE_HOME": "/home/blackbox/.cache",
+                "TMPDIR": "/tmp",
+                "BBS_HOST": "0.0.0.0",
+                "BBS_PORT": "31000",
+                "BBS_RUNTIME_ROOT": "/workspace_sandbox/blackbox_server_runtime",
+                "DRESSAGE_BLACKBOX_RUNTIME_ROOT": "/workspace_sandbox/blackbox_server_runtime",
+                "DRESSAGE_BLACKBOX_SLOT_ID": "e2b",
+                "DRESSAGE_BLACKBOX_SLOT_DIR": "/workspace_sandbox",
+                "DRESSAGE_BLACKBOX_SLOT_GENERATION": "0",
+                "DRESSAGE_BLACKBOX_SLOT_PORT": "31000",
+                "DRESSAGE_BLACKBOX_SUPERVISOR_RUN_ID": "e2b-provider",
+                "OPENCLAW_BIN": "/usr/local/bin/openclaw",
+                "CUDA_VISIBLE_DEVICES": "",
+                "NVIDIA_VISIBLE_DEVICES": "void",
+            }
+            if has_blackbox_service
+            else {}
+        )
+        envs.update(spec.env)
         envs.update(_dict_extra_param(extra_params, "e2b_envs"))
         metadata = {
             "trajectory_id": spec.trajectory_id,
@@ -210,6 +239,36 @@ class E2BSandboxProvider:
             payload = existing + content  # type: ignore[operator]
         result = await _maybe_await(write(path, payload))
         return {"path": path, "written": True, "raw": result}
+
+    async def write_files(
+        self,
+        lease: SandboxLease,
+        *,
+        files: list[dict[str, Any]],
+        dist_path: str = "/data",
+    ) -> dict[str, Any]:
+        """Write multiple files into the sandbox from local paths."""
+        sandbox = _require_sandbox(lease)
+        files_api = getattr(sandbox, "files", None)
+        write_files_fn = getattr(files_api, "write_files", None) if files_api is not None else None
+        write_fn = getattr(files_api, "write", None) if files_api is not None else None
+        if write_files_fn is None and write_fn is None:
+            raise RuntimeError("E2B sandbox object does not expose files.write_files")
+        prepared: list[dict[str, Any]] = []
+        for entry in files:
+            rel_path = entry["path"]
+            full_path = (
+                rel_path if rel_path.startswith("/") else f"{dist_path}/{rel_path}"
+            )
+            with open(entry["local_path"], "rb") as fh:
+                prepared.append({"path": full_path, "data": fh.read()})
+        if write_files_fn is not None:
+            result = await _maybe_await(write_files_fn(prepared))
+        else:
+            for item in prepared:
+                await _maybe_await(write_fn(item["path"], item["data"]))
+            result = None
+        return {"files_written": len(prepared), "dist_path": dist_path, "raw": result}
 
     async def _run_sandbox_cmds(
         self,

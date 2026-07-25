@@ -116,6 +116,7 @@ class BlackboxAgentPaddock(BlackboxPaddock):
         blackbox_type: str = DEFAULT_BLACKBOX_TYPE,
         backend_options: Any = None,
         router_api_path: str = "/v1",
+        system_prompt_file: str | None = None,
     ) -> dict[str, Any]:
         state = self._resolve_state(state)
         lease = self._leases.get(state.trajectory_id)
@@ -132,6 +133,7 @@ class BlackboxAgentPaddock(BlackboxPaddock):
             backend_options=merge_backend_options(blackbox_type, backend_options),
             server_config=_server_config_for_provider(self._provider.name, blackbox_type),
             router_api_path=router_api_path,
+            system_prompt_file=system_prompt_file,
         )
 
     async def call_agent(
@@ -168,6 +170,25 @@ class BlackboxAgentPaddock(BlackboxPaddock):
             cmd=cmd,
             timeout=timeout,
         )
+
+    async def write_files(
+        self,
+        state: SandboxState | str,
+        *,
+        files: list[dict[str, Any]],
+        dist_path: str = "/data",
+    ) -> dict[str, Any]:
+        """Write multiple files into the sandbox via the provider's write_files."""
+        state = self._resolve_state(state)
+        lease = self._leases.get(state.trajectory_id)
+        if lease is None:
+            raise RuntimeError(f"no lease for trajectory {state.trajectory_id}")
+        if not hasattr(self._provider, "write_files"):
+            raise NotImplementedError(
+                f"sandbox provider '{self._provider.name}' does not support "
+                "write_files"
+            )
+        return await self._provider.write_files(lease, files=files, dist_path=dist_path)
 
     async def pause(
         self,
