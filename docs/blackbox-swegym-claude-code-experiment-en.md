@@ -8,7 +8,17 @@ This experiment demonstrates that **Dressage can effectively train agents on SWE
 
 The figure above shows three key metrics over the first 80 training steps. The light lines are raw measurements, while the dark lines are 13-step centered moving averages. The smoothed `raw_reward_trajectory_mean` increases from approximately 0.27 at the beginning of training to **above 0.6** toward the end and largely converges, indicating an overall improvement in the model's SWE-Gym task success rate and good training stability. `train_rollout_logprob_diff` remains within a narrow range of approximately 0.009–0.011 and does not increase continuously during training. Although `grad_norm` contains a few short-lived spikes, it remains within a controlled range overall and its smoothed value falls back to approximately 0.3 near the end, with no sign of sustained gradient explosion.
 
-We also evaluated the trained model with Claude Code on the more challenging **SWE-bench Verified** benchmark. To give the agent more room for problem analysis and code modification, we increased the context budget to 256K tokens and the maximum number of interaction steps to 160. Accuracy improved from the Qwen3.5-4B + Claude Code baseline of **32.6%** to **37.8%**, an absolute gain of **5.2 percentage points**.
+## SWE-bench Verified: 37.8% Accuracy
+
+The SWE-Gym-trained model also transfers its gains to the substantially more challenging **SWE-bench Verified** benchmark:
+
+| Model and agent | Accuracy |
+| --- | ---: |
+| Qwen3.5-4B + Claude Code baseline | 32.6% |
+| **Dressage-trained Qwen3.5-4B + Claude Code** | **37.8%** |
+| **Absolute improvement** | **+5.2 percentage points** |
+
+For this evaluation, we increased the context budget to 256K tokens and the maximum number of interaction steps to 160, giving the agent more room to analyze each issue and implement a complete code change. The **5.2-point absolute gain on SWE-bench Verified** shows that training on SWE-Gym improves software-engineering performance beyond the training benchmark itself.
 
 ## Download and Convert SWE-Gym Data
 
@@ -28,29 +38,7 @@ python3 -m pip install \
   'swegym @ git+https://github.com/SWE-Gym/SWE-Bench-Package.git@16dd480cce9b27bf111a362d280881c6def5d2a7'
 ```
 
-The data only needs to be converted once. Because E2B template creation requires the original task images in advance, first download the Parquet file:
-
-```bash
-python3 - <<'PY'
-from pathlib import Path
-
-from huggingface_hub import hf_hub_download
-
-source = Path(
-    hf_hub_download(
-        repo_id="NovaSky-AI/SkyRL-v0-293-data",
-        filename="train.parquet",
-        repo_type="dataset",
-    )
-)
-target = Path("data/swegym-source/train.parquet")
-target.parent.mkdir(parents=True, exist_ok=True)
-target.write_bytes(source.read_bytes())
-print(target)
-PY
-```
-
-If you plan to use E2B templates, first follow the next section to build the task templates and create `data/e2b-template-map.json`. You can then use a single command to perform the SWE-Gym format conversion, generate the official evaluation configuration, map E2B images, and configure the Claude Code backend:
+The data only needs to be converted once. If you plan to use E2B templates, first follow the next section to download the source Parquet, enumerate and build the task templates, and create `data/e2b-template-map.json`. You can then use a single command to perform the SWE-Gym format conversion, generate the official evaluation configuration, map E2B images, and configure the Claude Code backend:
 
 ```bash
 python3 examples/data/swegym/prepare_swegym_data.py \
@@ -131,29 +119,14 @@ Preparing the E2B templates involves three steps:
 2. Record a JSON mapping from each raw Docker image to its E2B template name.
 3. Pass that mapping through `--sandbox-image-map` during data conversion.
 
-After downloading the original Parquet file, collect all unique task images directly from it without first generating an intermediate Dressage JSONL:
+Download the original Parquet file and collect all unique task images without first generating an intermediate Dressage JSONL:
 
 ```bash
-python3 - <<'PY'
-import pyarrow.parquet as pq
-
-from examples.data.swegym.prepare_swegym_data import registry_image_for_instance
-
-table = pq.read_table("data/swegym-source/train.parquet")
-seen = set()
-images = []
-for row in table.to_pylist():
-    instance = row["instance"]
-    image = registry_image_for_instance(instance["instance_id"], instance["repo"])
-    if image not in seen:
-        seen.add(image)
-        images.append(image)
-
-with open("data/swegym-images.txt", "w", encoding="utf-8") as output:
-    output.writelines(image + "\n" for image in images)
-
-print(f"wrote {len(images)} unique images")
-PY
+python3 examples/data/swegym/prepare_swegym_e2b.py list-images \
+  --download \
+  --download-dir data/swegym-source \
+  --split train \
+  --output data/swegym-images.txt
 ```
 
 Every template must contain Claude Code and Blackbox Server. Build a wheel from
@@ -168,7 +141,7 @@ export CLAUDE_CODE_BBS_VERSION=1.1.0
 export CLAUDE_CODE_BBS_WHEEL_URL="$PWD/dist/dressage_blackbox_server-1.1.0-py3-none-any.whl"
 export CLAUDE_CODE_ARTIFACT_DIR=/shared/path/claude-code-artifacts
 
-bash examples/scripts/prepare_claude_code_sandbox_artifacts.sh
+bash dressage/recipes/swegym/prepare_claude_code_sandbox_artifacts.sh
 ```
 
 By default, the script produces the Claude Code 2.1.207 Linux x86-64 binary and a runtime archive containing portable Python 3.10.20, BBS, and its dependencies:
@@ -179,69 +152,17 @@ By default, the script produces the Claude Code 2.1.207 Linux x86-64 binary and 
 └── claude-code-runtime-python-3.10.20-bbs-<version>.tar.gz
 ```
 
-When building a template, install Claude Code at `/usr/local/bin/claude`, unpack the BBS runtime into `/opt/cc-runtime`, and start Blackbox Server with the portable Python interpreter. Set `E2B_API_KEY=e2b_...` before running the builder. The following code builds a template for one task image; for a full build, iterate over `data/swegym-images.txt` and assign a unique template name to each image:
+When building a template, the repository builder installs Claude Code at `/usr/local/bin/claude`, unpacks the BBS runtime into `/opt/cc-runtime`, and starts Blackbox Server with the portable Python interpreter. Set `E2B_API_KEY=e2b_...`, select one image from `data/swegym-images.txt`, assign a unique template name, and run:
 
-```python
-import os
+```bash
+export E2B_API_KEY=e2b_...
+export TASK_IMAGE=xingyaoww/sweb.eval.x86_64.example:latest
+export TEMPLATE_NAME=e2b-swegym-example
 
-from e2b import Template, default_build_logger, wait_for_url
-
-task_image = os.environ["TASK_IMAGE"]
-template_name = os.environ["TEMPLATE_NAME"]
-artifact_dir = os.environ["CLAUDE_CODE_ARTIFACT_DIR"]
-bbs_version = os.environ["CLAUDE_CODE_BBS_VERSION"]
-claude_binary = "claude-2.1.207-linux-x64"
-bbs_runtime = (
-    f"claude-code-runtime-python-3.10.20-bbs-{bbs_version}.tar.gz"
-)
-
-bbs_start = """
-cd /testbed
-export BBS_HOST=0.0.0.0
-export BBS_PORT=31000
-export BBS_RUNTIME_ROOT=/tmp/blackbox_server
-exec /opt/cc-runtime/python/bin/python3 -c \
-  "import sys; sys.path.insert(0, '/opt/cc-runtime/bbs-site'); \
-from blackbox_server.main import main; main()" \
-  > /tmp/blackbox-server.log 2>&1
-""".strip()
-
-template = (
-    Template(file_context_path=artifact_dir)
-    .from_image(task_image)
-    .set_user("root")
-    .apt_install(["bash", "curl", "ca-certificates", "git", "patch", "tar"])
-    .copy(
-        claude_binary,
-        "/usr/local/bin/claude",
-        mode=0o755,
-    )
-    .copy(
-        bbs_runtime,
-        "/tmp/cc-runtime.tar.gz",
-    )
-    .run_cmd(
-        "rm -rf /opt/cc-runtime && mkdir -p /opt/cc-runtime && "
-        "tar -xzf /tmp/cc-runtime.tar.gz -C /opt/cc-runtime "
-        "--strip-components=1 && "
-        "/usr/local/bin/claude --version"
-    )
-    .set_start_cmd(
-        bbs_start,
-        wait_for_url("http://127.0.0.1:31000/health"),
-    )
-)
-
-Template.build(
-    template,
-    template_name,
-    cpu_count=4,
-    memory_mb=8192,
-    on_build_logs=default_build_logger(),
-)
+python3 examples/data/swegym/prepare_swegym_e2b.py build
 ```
 
-`from_image()` can use a task image from a public registry directly; private registries require the credentials expected by the E2B SDK. `set_start_cmd()` starts BBS at the end of the template build, waits for `/health` to succeed, and then creates the snapshot. Sandboxes created from that template resume with the snapshotted BBS process already running. The CPU and memory settings shown above are examples and should be adjusted to the test workload of each repository. See the [E2B Template documentation](https://e2b.dev/docs/template/defining-template) and [Start & ready commands](https://e2b.dev/docs/template/start-ready-command) for the template definition, build, and start/ready command semantics.
+The builder can use a task image from a public registry directly; private registries require the credentials expected by the E2B SDK. It starts BBS at the end of the template build, waits for `/health` to succeed, and then creates the snapshot. Sandboxes created from that template resume with the snapshotted BBS process already running. The default 4 CPUs and 8192 MiB are examples; override them with `--cpu-count` and `--memory-mb` according to the test workload of each repository. See the [E2B Template documentation](https://e2b.dev/docs/template/defining-template) and [Start & ready commands](https://e2b.dev/docs/template/start-ready-command) for the template definition, build, and start/ready command semantics.
 
 After every template has been built, write the mapping to `data/e2b-template-map.json` in the form `{docker_image: template_name}`. Then run the single `prepare_swegym_data.py` conversion described in the previous section. The converter applies the image mapping, preserves the original image in `metadata.docker_image`, and writes the final Claude Code training data directly. Do not pass artifact URLs for the E2B path: the BBS process already running in the template must be the only service process. Select E2B when starting training:
 
@@ -259,25 +180,9 @@ relying on the node-private address inferred from `hostname -I`.
 
 Before building the full set of templates or starting training, smoke-test one template:
 
-```python
-import asyncio
-
-from e2b import AsyncSandbox
-
-
-async def main():
-    sandbox = await AsyncSandbox.create(template="e2b-swegym-example")
-    try:
-        print(sandbox.get_host(31000))
-        result = await sandbox.commands.run(
-            "curl -sf http://127.0.0.1:31000/health"
-        )
-        print(result.stdout)
-    finally:
-        sandbox.kill()
-
-
-asyncio.run(main())
+```bash
+python3 examples/data/swegym/prepare_swegym_e2b.py smoke \
+  --template-name e2b-swegym-example
 ```
 
 ### Custom `SandboxProvider`
@@ -312,7 +217,7 @@ Agents may exploit information left in the task environment instead of following
 
 ## Experiment Setup
 
-The complete experiment configuration is available in `examples/scripts/run_swegym_claude_code_grpo_sync.sh`. We use Qwen3.5-4B as the base model. Because SWE-Gym tasks are relatively moderate in complexity among SWE benchmarks, we use a 64K-token context window, retain at most 16K response tokens per rollout, and limit Claude Code to 80 interaction steps. Training is synchronous.
+The complete experiment configuration is available in `examples/scripts/run_dressage_swegym_qwen3.5_4b_claude_code_sync_4_node.sh`. We use Qwen3.5-4B as the base model. Because SWE-Gym tasks are relatively moderate in complexity among SWE benchmarks, we use a 64K-token context window, retain at most 16K response tokens per rollout, and limit Claude Code to 80 interaction steps. Training is synchronous.
 
 Task reward is determined entirely by the official SWE-Gym harness running in a fresh sandbox. A trajectory receives a reward of 1 only when every target test in both `FAIL_TO_PASS` and `PASS_TO_PASS` passes; all other outcomes receive 0, with no partial credit based on the fraction of passing tests. An empty patch, patch-application failure, evaluation failure, or missing reward marker also receives 0. The anti-cheating checks described above likewise set a violating trajectory's reward to 0 rather than applying an additional negative reward.
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# SWE-Gym Claude Code synchronous GRPO experiment.
+# Dressage SWE-Gym Qwen3.5-4B Claude Code synchronous four-node experiment.
 #
 # The task and coding agent are intentionally fixed to SWE-Gym and Claude Code.
 # Deployment wrappers may override the model, topology, batch shape, sandbox

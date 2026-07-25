@@ -42,7 +42,7 @@ export CLAUDE_CODE_BBS_VERSION=1.1.0
 export CLAUDE_CODE_BBS_WHEEL_URL="$PWD/dist/dressage_blackbox_server-1.1.0-py3-none-any.whl"
 export CLAUDE_CODE_ARTIFACT_DIR="$PWD/data/claude-code-artifacts"
 
-bash examples/scripts/prepare_claude_code_sandbox_artifacts.sh
+bash dressage/recipes/swegym/prepare_claude_code_sandbox_artifacts.sh
 ```
 
 为每个不同的 SWE-Gym task image 构建一个 E2B template，并准备从原始
@@ -54,18 +54,35 @@ Docker image 到 E2B template name 的 JSON 映射：
 }
 ```
 
-如何枚举 image 和构建 template，见
+使用仓库工具枚举 image、逐个构建 template，并完成 smoke test：
+
+```bash
+python3 examples/data/swegym/prepare_swegym_e2b.py list-images \
+  --download \
+  --download-dir data/swegym-source \
+  --split train \
+  --output data/swegym-images.txt
+
+export E2B_API_KEY=e2b_...
+export TASK_IMAGE=xingyaoww/sweb.eval.x86_64.example:latest
+export TEMPLATE_NAME=e2b-swegym-example
+
+python3 examples/data/swegym/prepare_swegym_e2b.py build
+python3 examples/data/swegym/prepare_swegym_e2b.py smoke
+```
+
+对 `data/swegym-images.txt` 中的每个 image 重复 build，为其分配唯一
+template name，并记录最终映射。更多说明见
 [完整实验说明](blackbox-swegym-claude-code-experiment-zh.md)。
 
 ## 3. 转换 SWE-Gym 数据
 
-下载并转换 293 条训练数据：
+转换已下载的 293 条训练数据：
 
 ```bash
 python3 examples/data/swegym/prepare_swegym_data.py \
   data/swegym-train-claude-code-e2b.jsonl \
-  --download \
-  --download-dir data/swegym-source \
+  --input data/swegym-source/train.parquet \
   --split train \
   --provider e2b \
   --sandbox-image-map data/e2b-template-map.json \
@@ -87,24 +104,9 @@ limit。最终 JSONL 不含 gold patch，并包含：
 
 占用训练 GPU 前，先确认 template 能恢复 Blackbox Server 并暴露 31000：
 
-```python
-import asyncio
-from e2b import AsyncSandbox
-
-
-async def main():
-    sandbox = await AsyncSandbox.create(template="e2b-swegym-example")
-    try:
-        print(sandbox.get_host(31000))
-        result = await sandbox.commands.run(
-            "curl -sf http://127.0.0.1:31000/health"
-        )
-        print(result.stdout)
-    finally:
-        sandbox.kill()
-
-
-asyncio.run(main())
+```bash
+python3 examples/data/swegym/prepare_swegym_e2b.py smoke \
+  --template-name e2b-swegym-example
 ```
 
 还应至少完整验证一条真实任务：Claude Code 能在 `/testbed` 生成 patch，
@@ -123,7 +125,7 @@ export DRESSAGE_E2B_API_KEY=e2b_...
 export DRESSAGE_E2B_BLACKBOX_PORT=31000
 export DRESSAGE_PROXY_URL=https://proxy.example.com
 
-bash examples/scripts/run_swegym_claude_code_grpo_sync.sh
+bash examples/scripts/run_dressage_swegym_qwen3.5_4b_claude_code_sync_4_node.sh
 ```
 
 `DRESSAGE_PROXY_URL` 必须是 E2B 沙箱能够访问的 HTTP(S) 地址。

@@ -42,7 +42,7 @@ export CLAUDE_CODE_BBS_VERSION=1.1.0
 export CLAUDE_CODE_BBS_WHEEL_URL="$PWD/dist/dressage_blackbox_server-1.1.0-py3-none-any.whl"
 export CLAUDE_CODE_ARTIFACT_DIR="$PWD/data/claude-code-artifacts"
 
-bash examples/scripts/prepare_claude_code_sandbox_artifacts.sh
+bash dressage/recipes/swegym/prepare_claude_code_sandbox_artifacts.sh
 ```
 
 Build one E2B template per distinct SWE-Gym task image and write a JSON object
@@ -54,18 +54,37 @@ mapping each Docker image to its E2B template name:
 }
 ```
 
-See the [full experiment guide](blackbox-swegym-claude-code-experiment-en.md)
-for the image enumeration and E2B template builder.
+Use the repository utility to enumerate images, build each template, and
+smoke-test it:
+
+```bash
+python3 examples/data/swegym/prepare_swegym_e2b.py list-images \
+  --download \
+  --download-dir data/swegym-source \
+  --split train \
+  --output data/swegym-images.txt
+
+export E2B_API_KEY=e2b_...
+export TASK_IMAGE=xingyaoww/sweb.eval.x86_64.example:latest
+export TEMPLATE_NAME=e2b-swegym-example
+
+python3 examples/data/swegym/prepare_swegym_e2b.py build
+python3 examples/data/swegym/prepare_swegym_e2b.py smoke
+```
+
+Repeat the build for every image in `data/swegym-images.txt`, assigning each a
+unique template name, and record the resulting mapping. See the
+[full experiment guide](blackbox-swegym-claude-code-experiment-en.md) for
+details.
 
 ## 3. Convert SWE-Gym data
 
-Download and convert the 293-row training split:
+Convert the downloaded 293-row training split:
 
 ```bash
 python3 examples/data/swegym/prepare_swegym_data.py \
   data/swegym-train-claude-code-e2b.jsonl \
-  --download \
-  --download-dir data/swegym-source \
+  --input data/swegym-source/train.parquet \
   --split train \
   --provider e2b \
   --sandbox-image-map data/e2b-template-map.json \
@@ -89,24 +108,9 @@ patch. It includes:
 Before allocating training GPUs, verify that a template resumes Blackbox Server
 and exposes port `31000`:
 
-```python
-import asyncio
-from e2b import AsyncSandbox
-
-
-async def main():
-    sandbox = await AsyncSandbox.create(template="e2b-swegym-example")
-    try:
-        print(sandbox.get_host(31000))
-        result = await sandbox.commands.run(
-            "curl -sf http://127.0.0.1:31000/health"
-        )
-        print(result.stdout)
-    finally:
-        sandbox.kill()
-
-
-asyncio.run(main())
+```bash
+python3 examples/data/swegym/prepare_swegym_e2b.py smoke \
+  --template-name e2b-swegym-example
 ```
 
 Also verify one real task end to end: Claude Code must produce a patch under
@@ -126,7 +130,7 @@ export DRESSAGE_E2B_API_KEY=e2b_...
 export DRESSAGE_E2B_BLACKBOX_PORT=31000
 export DRESSAGE_PROXY_URL=https://proxy.example.com
 
-bash examples/scripts/run_swegym_claude_code_grpo_sync.sh
+bash examples/scripts/run_dressage_swegym_qwen3.5_4b_claude_code_sync_4_node.sh
 ```
 
 `DRESSAGE_PROXY_URL` must be an HTTP(S) endpoint that the E2B sandboxes can

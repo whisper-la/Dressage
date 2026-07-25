@@ -8,6 +8,7 @@
 
 !swegym/
 !swegym/prepare_swegym_data.py
+!swegym/prepare_swegym_e2b.py
 
 !alfworld/
 !alfworld/prepare_alfworld.py

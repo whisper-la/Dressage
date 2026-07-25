@@ -8,7 +8,17 @@
 
 上图展示了训练前 80 个 steps 的三个关键指标，浅色折线为原始记录，深色曲线为 13-step 居中滑动平均。`raw_reward_trajectory_mean` 的平滑值从训练初期约 0.27 上升到后期 **0.6 以上**，并基本收敛，表明模型解决 SWE-Gym 任务的成功率总体提高，且训练稳定性良好；`train_rollout_logprob_diff` 始终在约 0.009–0.011 的窄幅区间内波动，没有随训练持续扩大；`grad_norm` 虽然存在少量短时尖峰，但整体保持在可控范围内，末段平滑值回落到约 0.3，未出现持续性的梯度爆炸。
 
-此外，我们还使用 Claude Code 在难度更高的 **SWE-bench Verified** 上进行了测试。为给 agent 留出更充分的问题分析和代码修改空间，评测时将上下文预算提高到 256K tokens，并将最大交互步数提高到 160。最终准确率由 Qwen3.5-4B + Claude Code baseline 的 **32.6%** 提升到 **37.8%**，绝对提升 **5.2 个百分点**。
+## SWE-bench Verified：准确率达到 37.8%
+
+在难度显著更高的 **SWE-bench Verified** 上，经过 SWE-Gym 训练的模型同样取得了明确提升：
+
+| 模型与 Agent | 准确率 |
+| --- | ---: |
+| Qwen3.5-4B + Claude Code baseline | 32.6% |
+| **Dressage 训练后的 Qwen3.5-4B + Claude Code** | **37.8%** |
+| **绝对提升** | **+5.2 个百分点** |
+
+评测时，我们将上下文预算提高到 256K tokens，并将最大交互步数提高到 160，为 agent 留出更充分的问题分析和代码修改空间。**SWE-bench Verified 上 5.2 个百分点的绝对提升**表明，SWE-Gym 训练带来的软件工程能力增益能够迁移到训练 benchmark 之外。
 
 ## 下载并转换 SWE-Gym 数据
 
@@ -28,29 +38,7 @@ python3 -m pip install \
   'swegym @ git+https://github.com/SWE-Gym/SWE-Bench-Package.git@16dd480cce9b27bf111a362d280881c6def5d2a7'
 ```
 
-数据只需要执行一次转换。E2B template 构建需要先知道原始 task image，因此先下载 Parquet：
-
-```bash
-python3 - <<'PY'
-from pathlib import Path
-
-from huggingface_hub import hf_hub_download
-
-source = Path(
-    hf_hub_download(
-        repo_id="NovaSky-AI/SkyRL-v0-293-data",
-        filename="train.parquet",
-        repo_type="dataset",
-    )
-)
-target = Path("data/swegym-source/train.parquet")
-target.parent.mkdir(parents=True, exist_ok=True)
-target.write_bytes(source.read_bytes())
-print(target)
-PY
-```
-
-如果你需要使用E2B template，你需要先参考下一章构建 task templates 并准备 `data/e2b-template-map.json` 。随后你可以用一个命令完成 SWE-Gym 格式转换、官方评测配置、E2B image 映射和 Claude Code backend 配置：
+数据只需要执行一次转换。如果使用 E2B template，请先按下一节下载源 Parquet、枚举并构建 task template，并生成 `data/e2b-template-map.json`。之后只需一次命令即可同时完成 SWE-Gym 格式转换、官方评测配置生成、E2B image 映射和 Claude Code backend 配置：
 
 ```bash
 python3 examples/data/swegym/prepare_swegym_data.py \
@@ -131,29 +119,14 @@ E2B template 的准备分为三步：
 2. 记录原始 Docker image 到 E2B template name 的 JSON 映射；
 3. 在数据转换时通过 `--sandbox-image-map` 写入 template name。
 
-下载原始 Parquet 后，可以直接从其中收集全部唯一 task image，不需要先生成一份中间 Dressage JSONL：
+下载原始 Parquet 并直接收集全部唯一 task image，不需要先生成一份中间 Dressage JSONL：
 
 ```bash
-python3 - <<'PY'
-import pyarrow.parquet as pq
-
-from examples.data.swegym.prepare_swegym_data import registry_image_for_instance
-
-table = pq.read_table("data/swegym-source/train.parquet")
-seen = set()
-images = []
-for row in table.to_pylist():
-    instance = row["instance"]
-    image = registry_image_for_instance(instance["instance_id"], instance["repo"])
-    if image not in seen:
-        seen.add(image)
-        images.append(image)
-
-with open("data/swegym-images.txt", "w", encoding="utf-8") as output:
-    output.writelines(image + "\n" for image in images)
-
-print(f"wrote {len(images)} unique images")
-PY
+python3 examples/data/swegym/prepare_swegym_e2b.py list-images \
+  --download \
+  --download-dir data/swegym-source \
+  --split train \
+  --output data/swegym-images.txt
 ```
 
 每个 template 都要安装 Claude Code 和 Blackbox Server。先从当前公开仓库的
@@ -168,7 +141,7 @@ export CLAUDE_CODE_BBS_VERSION=1.1.0
 export CLAUDE_CODE_BBS_WHEEL_URL="$PWD/dist/dressage_blackbox_server-1.1.0-py3-none-any.whl"
 export CLAUDE_CODE_ARTIFACT_DIR=/shared/path/claude-code-artifacts
 
-bash examples/scripts/prepare_claude_code_sandbox_artifacts.sh
+bash dressage/recipes/swegym/prepare_claude_code_sandbox_artifacts.sh
 ```
 
 脚本默认生成 Claude Code 2.1.207 的 Linux x86-64 binary，以及包含 portable Python 3.10.20、BBS 和相关依赖的 runtime 压缩包：
@@ -179,69 +152,17 @@ bash examples/scripts/prepare_claude_code_sandbox_artifacts.sh
 └── claude-code-runtime-python-3.10.20-bbs-<version>.tar.gz
 ```
 
-构建 template 时，将 Claude Code 安装到 `/usr/local/bin/claude`，将 BBS runtime 解压到 `/opt/cc-runtime`，并使用 portable Python 启动 Blackbox Server。执行 builder 前设置 `E2B_API_KEY=e2b_...`。下面的代码针对一个 task image 构建 template；批量构建时遍历 `data/swegym-images.txt`，为每个 image 分配唯一的 template name：
+构建 template 时，仓库内的 builder 会将 Claude Code 安装到 `/usr/local/bin/claude`，将 BBS runtime 解压到 `/opt/cc-runtime`，并使用 portable Python 启动 Blackbox Server。先设置 `E2B_API_KEY=e2b_...`，从 `data/swegym-images.txt` 选择一个 image，为其分配唯一 template name，然后执行：
 
-```python
-import os
+```bash
+export E2B_API_KEY=e2b_...
+export TASK_IMAGE=xingyaoww/sweb.eval.x86_64.example:latest
+export TEMPLATE_NAME=e2b-swegym-example
 
-from e2b import Template, default_build_logger, wait_for_url
-
-task_image = os.environ["TASK_IMAGE"]
-template_name = os.environ["TEMPLATE_NAME"]
-artifact_dir = os.environ["CLAUDE_CODE_ARTIFACT_DIR"]
-bbs_version = os.environ["CLAUDE_CODE_BBS_VERSION"]
-claude_binary = "claude-2.1.207-linux-x64"
-bbs_runtime = (
-    f"claude-code-runtime-python-3.10.20-bbs-{bbs_version}.tar.gz"
-)
-
-bbs_start = """
-cd /testbed
-export BBS_HOST=0.0.0.0
-export BBS_PORT=31000
-export BBS_RUNTIME_ROOT=/tmp/blackbox_server
-exec /opt/cc-runtime/python/bin/python3 -c \
-  "import sys; sys.path.insert(0, '/opt/cc-runtime/bbs-site'); \
-from blackbox_server.main import main; main()" \
-  > /tmp/blackbox-server.log 2>&1
-""".strip()
-
-template = (
-    Template(file_context_path=artifact_dir)
-    .from_image(task_image)
-    .set_user("root")
-    .apt_install(["bash", "curl", "ca-certificates", "git", "patch", "tar"])
-    .copy(
-        claude_binary,
-        "/usr/local/bin/claude",
-        mode=0o755,
-    )
-    .copy(
-        bbs_runtime,
-        "/tmp/cc-runtime.tar.gz",
-    )
-    .run_cmd(
-        "rm -rf /opt/cc-runtime && mkdir -p /opt/cc-runtime && "
-        "tar -xzf /tmp/cc-runtime.tar.gz -C /opt/cc-runtime "
-        "--strip-components=1 && "
-        "/usr/local/bin/claude --version"
-    )
-    .set_start_cmd(
-        bbs_start,
-        wait_for_url("http://127.0.0.1:31000/health"),
-    )
-)
-
-Template.build(
-    template,
-    template_name,
-    cpu_count=4,
-    memory_mb=8192,
-    on_build_logs=default_build_logger(),
-)
+python3 examples/data/swegym/prepare_swegym_e2b.py build
 ```
 
-`from_image()` 可以直接使用公开 registry 中的 task image；私有 registry 需要按 E2B SDK 要求提供 registry credential。`set_start_cmd()` 在 template build 末尾启动 BBS，并等待 `/health` 返回成功后制作快照；以后从该 template 创建 sandbox 时，快照中的 BBS 已经处于运行状态。CPU 和内存数值只是参考，应按各仓库测试负载调整。E2B template 的定义、构建及 start/ready command 语义以 [E2B Template 文档](https://e2b.dev/docs/template/defining-template) 和 [Start & ready commands](https://e2b.dev/docs/template/start-ready-command) 为准。
+builder 可以直接使用公开 registry 中的 task image；私有 registry 需要按 E2B SDK 要求提供 registry credential。它会在 template build 末尾启动 BBS，等待 `/health` 返回成功后制作快照；以后从该 template 创建 sandbox 时，快照中的 BBS 已经处于运行状态。默认的 4 CPUs 和 8192 MiB 只是参考，可通过 `--cpu-count` 和 `--memory-mb` 按各仓库测试负载调整。E2B template 的定义、构建及 start/ready command 语义以 [E2B Template 文档](https://e2b.dev/docs/template/defining-template) 和 [Start & ready commands](https://e2b.dev/docs/template/start-ready-command) 为准。
 
 每个 template 构建成功后，把映射记录到 `data/e2b-template-map.json`，格式为 `{docker_image: template_name}`。随后执行上一章唯一一次 `prepare_swegym_data.py` 调用；转换器会完成 image 映射、保留 `metadata.docker_image`，并直接写出最终 Claude Code 训练数据。E2B 路径不要传 artifact URL，template 中已经启动的 BBS 应是唯一服务进程。启动训练时选择 E2B：
 
@@ -259,25 +180,9 @@ ingress 或安全隧道暴露 Dressage proxy，不要依赖 `hostname -I` 推导
 
 在批量构建和训练前，先对一个 template 做 smoke test：
 
-```python
-import asyncio
-
-from e2b import AsyncSandbox
-
-
-async def main():
-    sandbox = await AsyncSandbox.create(template="e2b-swegym-example")
-    try:
-        print(sandbox.get_host(31000))
-        result = await sandbox.commands.run(
-            "curl -sf http://127.0.0.1:31000/health"
-        )
-        print(result.stdout)
-    finally:
-        sandbox.kill()
-
-
-asyncio.run(main())
+```bash
+python3 examples/data/swegym/prepare_swegym_e2b.py smoke \
+  --template-name e2b-swegym-example
 ```
 
 ### Custom `SandboxProvider`
@@ -312,7 +217,7 @@ Agent 可能利用任务环境中残留的信息绕过正常的软件修复过�
 
 ## 实验设置
 
-完整的实验参数见 `examples/scripts/run_swegym_claude_code_grpo_sync.sh`。本实验以 Qwen3.5-4B 为基础模型；考虑到 SWE-Gym 任务的整体复杂度在SWE任务中并不太高，将模型上下文长度设为 64K tokens，单条 rollout 最多保留 16K response tokens，并将 Claude Code 的最大交互轮数设为 80。训练采用同步的方式进行。
+完整的实验参数见 `examples/scripts/run_dressage_swegym_qwen3.5_4b_claude_code_sync_4_node.sh`。本实验以 Qwen3.5-4B 为基础模型；考虑到 SWE-Gym 任务的整体复杂度在SWE任务中并不太高，将模型上下文长度设为 64K tokens，单条 rollout 最多保留 16K response tokens，并将 Claude Code 的最大交互轮数设为 80。训练采用同步的方式进行。
 
 任务 reward 完全由 fresh sandbox 中的官方 SWE-Gym harness 决定：只有 `FAIL_TO_PASS` 和 `PASS_TO_PASS` 中的全部目标测试都通过时，trajectory 才获得 1 分，其他情况均为 0 分，不提供按测试通过比例计算的部分奖励。空 patch、patch 应用失败、评测执行失败或 reward marker 缺失同样记为 0 分；上一节提到的反作弊检查也只会将违规 trajectory 置为 0 分，而不会额外给予负分。
 
