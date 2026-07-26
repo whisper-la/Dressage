@@ -19,7 +19,7 @@ EXECUTE_CMD_STAGES = ("before_agent", "after_agent")
 EXECUTE_CMD_STDIO_METADATA_LIMIT = 4096
 
 _ALLOWED_STAGE_SET = frozenset(EXECUTE_CMD_STAGES)
-_ALLOWED_COMMAND_KEYS = frozenset(("name", "cmd", "timeout", "required"))
+_ALLOWED_COMMAND_KEYS = frozenset(("name", "cmd", "timeout", "required", "stdout_limit"))
 _REQUIRED_COMMAND_KEYS = frozenset(("name", "cmd", "required"))
 
 
@@ -30,6 +30,7 @@ class BlackboxExecuteCmd:
     cmd: str
     timeout: float | None
     required: bool
+    stdout_limit: int | None = None
 
 
 BlackboxExecuteCmdSchedule: TypeAlias = dict[str, tuple[BlackboxExecuteCmd, ...]]
@@ -84,6 +85,7 @@ async def execute_blackbox_cmds_for_stage(
 ) -> None:
     if stage not in _ALLOWED_STAGE_SET:
         raise ValueError(f"unsupported execute_cmd stage: {stage}")
+
     for command in schedule.get(stage, ()):
         await _execute_blackbox_cmd(
             paddock,
@@ -94,11 +96,15 @@ async def execute_blackbox_cmds_for_stage(
         )
 
 
-def truncated_metadata_text(value: Any) -> tuple[str, bool]:
+def truncated_metadata_text(
+    value: Any,
+    *,
+    limit: int | None = None,
+) -> tuple[str, bool]:
     text = "" if value is None else str(value)
-    if len(text) <= EXECUTE_CMD_STDIO_METADATA_LIMIT:
+    if limit is None or len(text) <= limit:
         return text, False
-    return text[:EXECUTE_CMD_STDIO_METADATA_LIMIT], True
+    return text[:limit], True
 
 
 def _empty_schedule() -> BlackboxExecuteCmdSchedule:
@@ -140,6 +146,7 @@ def _parse_command(stage: str, index: int, value: Any) -> BlackboxExecuteCmd:
         cmd=payload["cmd"],
         timeout=payload["timeout"],
         required=required,
+        stdout_limit=value.get("stdout_limit"),
     )
 
 
@@ -193,7 +200,7 @@ async def _execute_blackbox_cmd(
         )
         return
 
-    result_summary = _execute_cmd_result_summary(cmd_result)
+    result_summary = _execute_cmd_result_summary(cmd_result, stdout_limit=command.stdout_limit)
     record = {
         "stage": command.stage,
         "name": command.name,
@@ -212,14 +219,18 @@ async def _execute_blackbox_cmd(
         )
 
 
-def _execute_cmd_result_summary(result: Any) -> dict[str, Any]:
+def _execute_cmd_result_summary(
+    result: Any,
+    *,
+    stdout_limit: int | None = None,
+) -> dict[str, Any]:
     if not isinstance(result, dict):
-        raw, raw_truncated = truncated_metadata_text(result)
+        raw, raw_truncated = truncated_metadata_text(result, limit=stdout_limit)
         return {"raw": raw, "raw_truncated": raw_truncated}
 
     summary = {str(key): _json_safe(value) for key, value in result.items()}
-    stdout, stdout_truncated = truncated_metadata_text(summary.get("stdout"))
-    stderr, stderr_truncated = truncated_metadata_text(summary.get("stderr"))
+    stdout, stdout_truncated = truncated_metadata_text(summary.get("stdout"), limit=stdout_limit)
+    stderr, stderr_truncated = truncated_metadata_text(summary.get("stderr"), limit=stdout_limit)
     summary["stdout"] = stdout
     summary["stderr"] = stderr
     summary["stdout_truncated"] = stdout_truncated

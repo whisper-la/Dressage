@@ -6,6 +6,10 @@
 !dressage_dapo_prompts.jsonl
 !dressage_dapo_prompts_e2b.jsonl
 
+!swegym/
+!swegym/prepare_swegym_data.py
+!swegym/prepare_swegym_e2b.py
+
 !alfworld/
 !alfworld/prepare_alfworld.py
 !alfworld/alfworld_data/
@@ -17,3 +21,8 @@
 !hotpotqa/build_index.py
 !hotpotqa/corpus/
 !hotpotqa/corpus/.gitignore
+
+!dressage_claw/
+!dressage_claw/build_e2b_blackbox_template.py
+!dressage_claw/prepare_dressage_claw_data.py
+!dressage_claw/convert_dressage_claw_to_parquet.py

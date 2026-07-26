@@ -115,6 +115,7 @@ class ClaudeCodeBackendOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     executable: str | None = None
+    working_directory: str | None = None
     model: ClaudeCodeModelOptions = Field(default_factory=ClaudeCodeModelOptions)
     max_turns: int = Field(default=20, gt=0)
     permission_mode: Literal[
@@ -541,7 +542,9 @@ class ClaudeCodeAdapter(BackendAdapter):
             raise BackendProcessError("rollout proxy has not been initialized.")
         runtime_dir = Path(self._binding_context.binding.runtime_dir)
         logs_dir = runtime_dir / "logs"
-        workspace_dir = runtime_dir / "workspace"
+        workspace_dir = Path(
+            self._options.working_directory or runtime_dir / "workspace"
+        )
         if self._stdout_handle is None:
             self._stdout_handle = open(logs_dir / "claude_code.stdout.log", "ab")
         if self._stderr_handle is None:

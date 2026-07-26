@@ -14,16 +14,18 @@ Dressage lets you train diverse types of LLM agents that use real tools — like
 - [Project Structure](#-project-structure)
 - [Documentation](#-documentation)
 - [Docker](#-docker)
-- [Team](#-team)
 - [Contributing](#-contributing)
 - [Acknowledgements](#-acknowledgements)
 - [License](#-license)
 
 ## 📢 News
+- **[2026/07/26]** 💻 **Dressage SWE-Gym blackbox RL recipe released.** The recipe provides an end-to-end Claude Code blackbox RL pipeline with fresh-sandbox evaluation, anti-cheating safeguards, and a reproducible 64K setup. Qwen3.5-4B trained on [SWE-Gym](https://huggingface.co/datasets/NovaSky-AI/SkyRL-v0-293-data) improves accuracy on [SWE-bench Verified](https://www.swebench.com/verified.html) from **32.6%** to **37.8%** (+5.2 points). [Report: English](https://github.com/Accio-Lab/Dressage/blob/main/docs/blackbox-swegym-claude-code-experiment-en.md) | [中文](https://github.com/Accio-Lab/Dressage/blob/main/docs/blackbox-swegym-claude-code-experiment-zh.md) | [Training script](https://github.com/Accio-Lab/Dressage/blob/main/examples/scripts/run_dressage_swegym_qwen3.5_4b_claude_code_sync_4_node.sh)
+- **[2026/07/25]** 🔥 **Dressage Claw blackbox RL recipe released.** The recipe provides an end-to-end OpenClaw blackbox RL pipeline with staged grader injection and a reproducible 64K setup. Qwen3.6-35B-A3B trained on [Dressage-Claw](https://huggingface.co/datasets/huang3eng/Dressage-Claw) improves strict Pass^3 on the [ClawEval](https://claw-eval.github.io/) general split from **41.4** to **55.4** (+14.0 points). [Report: English](docs/blackbox-dressage-claw-experiment-en.md) | [中文](docs/blackbox-dressage-claw-experiment-zh.md) | [Training script](examples/scripts/run_dressage_claw_qwen3.6_35b_a3b_sync_4_node.sh)
+- **[2026/07/23] Support for Multi-Teacher OPD (MOPD):** Train a single student across any agent with multiple frozen teachers, routing each dataset to its assigned teacher while serially rotating teachers through shared GPU model buffers. Read the [technical guide](docs/mopd.md).
 - **[2026/07/19]** **Integrated [Harbor](docs/harbor.md) for rollout and training:** Harbor orchestrates task execution and evaluation, while Dressage handles model routing and trajectory collection.
 - **[2026/07/09]** **Multi-Agent Training.** From Timeline to Lineage, **Lineage-aware TITO** builds correct multi-agent training trajectories by reconstructing context inheritance across main-agent and subagent calls. Read the [technical deep dive](https://zhuanlan.zhihu.com/p/2059302405888537724).
 - **[2026/07/04]** **Multi-Harness Training.** Supports [Claude Code](https://github.com/anthropics/claude-code) and [Codex](https://github.com/openai/codex), and you can train multiple harnesses in a single [script](https://github.com/huang3eng/Dressage/blob/main/examples/scripts/run_blackbox_qwen3.5_4b_async_local.sh).
-- **[2026/06/30]**  Released [whitebox agent training curves](dressage/recipes/README.md) and [true staleness control](docs/staleness.md).
+- **[2026/06/30]**  **Released**  [Whitebox agent training curves](dressage/recipes/README.md) and [True Staleness Control](docs/staleness.md).
 - **[2026/06/20]**  **Dressage is now open source!**
 
 
@@ -187,11 +189,9 @@ Bridges slime's RL training loop with Dressage's agentic capabilities through cu
 
 Transforms proxy-recorded trajectories into slime-compatible training data. Multi-segment expansion trains on all segments (not just the last). TITO tokenization eliminates retokenization drift across turns. Prompt-equal gradient aggregation ensures fair scaling for GRPO. Partial rollout resume preserves in-flight generation across weight updates. Reward post-processing broadcasts anchor advantages to sibling segments.
 
-### [Recipes](docs/recipes.md): Example Agents
+### [Recipes](https://github.com/Accio-Lab/Dressage/blob/main/docs/recipes.md): Agent Training Recipes
 
-Complete whitebox agent implementations demonstrating the framework. **ALFWorld**: TextWorld navigation agent with `env_step` tool for household task completion. **HotpotQA**: multi-hop retrieval agent with local FAISS+BGE index for complex question answering. Both include training scripts, reward functions, and a build-your-own guide for custom agents.
-
-For the end-to-end data preparation and launch commands for these recipes, see the **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)**.
+End-to-end whitebox and blackbox RL recipes for SWE-Gym, Dressage Claw, ALFWorld, and HotpotQA, with data preparation, training scripts, reward and evaluation implementations, and a build-your-own guide.
 
 ## 📚 Documentation
 
@@ -202,9 +202,11 @@ For the end-to-end data preparation and launch commands for these recipes, see t
 - **[Rollout](docs/rollout.md)** — Generate hooks, async modes, reward registry, slime wiring
 - **[Training](docs/training.md)** — Multi-segment, TITO, prompt-equal aggregation, partial rollout
 - **[Harbor Integration](docs/harbor.md)** — Harbor rollouts, trainable trajectory capture, and synchronous slime training
-- **[Recipes](docs/recipes.md)** — ALFWorld and HotpotQA example agents, build-your-own guide
-- **[Whitebox Agent Quick Start](docs/whitebox-agent-quickstart.md)** — Data preparation and launch commands for ALFWorld and HotpotQA whitebox agents
 - **[Quick Start](docs/quickstart.md)** — Step-by-step setup, configuration reference, troubleshooting
+- **[Recipes](docs/recipes.md)** — End-to-end whitebox and blackbox training recipes for SWE-Gym, Dressage Claw, ALFWorld, and HotpotQA, with quickstarts, experiment reports, and a build-your-own guide.
+    - **SWE-Gym + Claude Code** — [Quickstart](docs/swegym-claude-code-quickstart-en.md) ([中文](docs/swegym-claude-code-quickstart-zh.md)) and [experiment report](docs/blackbox-swegym-claude-code-experiment-en.md) ([中文](docs/blackbox-swegym-claude-code-experiment-zh.md))
+    - **Dressage Claw + OpenClaw** — [Experiment report](docs/blackbox-dressage-claw-experiment-en.md) ([中文](docs/blackbox-dressage-claw-experiment-zh.md))
+    - **Whitebox Agents** — [Quick Start](docs/whitebox-agent-quickstart.md) with data preparation and launch commands for ALFWorld and HotpotQA
 
 ## 🐳 Docker
 
@@ -221,10 +223,8 @@ The image includes bubblewrap, opencode, openclaw, Claude Code, Codex CLI, Dress
 
 Dressage is developed and maintained by its authors and contributors.
 
-**Author**:
-Liangmeng Huang (huang3eng@gmail.com)
-
 **Core Contributors** (alphabetical):
+Liangmeng Huang (huang3eng@gmail.com)
 Hao Dong (dh20373967@gmail.com)
 Qingchuan Li (lqcustc@gmail.com)
 Hongwei Xue (xuehongwe@gmail.com)
@@ -258,7 +258,7 @@ Contributions are welcome! If you have suggestions for new features, performance
 
 **Development notes:**
 - When bumping the slime submodule, diff `convert_samples.py` against upstream `slime/ray/rollout.py`
-- TITO currently supports `qwen3_5` only — contributions for additional model templates welcome
+- TITO currently supports `qwen3_5` and `qwen3_6`; contributions for additional model templates are welcome.
 - The `claude_code` adapter runs Claude Code headless through the BlackboxServer Anthropic Messages bridge.
 - The `codex` adapter runs `codex exec --json` with an isolated sandbox-local `CODEX_HOME`, points Codex at the in-process Dressage proxy, and does not mount host `~/.codex` credentials.
 
