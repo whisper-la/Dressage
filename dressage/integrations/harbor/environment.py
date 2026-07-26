@@ -135,6 +135,7 @@ def _base_bwrap_args(bwrap: str) -> list[str]:
         "0",
         "--unshare-uts",
         "--unshare-ipc",
+        "--unshare-pid",
     ]
 
 
