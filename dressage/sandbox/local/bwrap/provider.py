@@ -204,6 +204,29 @@ class LocalBwrapSandboxProvider:
             append=append,
         )
 
+    async def write_files(
+        self,
+        lease: SandboxLease,
+        *,
+        files: list[dict[str, Any]],
+        dist_path: str = "/data",
+    ) -> dict[str, Any]:
+        """No-op batch upload for the local bwrap provider.
+
+        bwrap shares the sandbox filesystem with the host through bind mounts
+        (``/workspace`` maps to the slot work_dir), so harness/reward files are
+        already reachable locally and never need to be transferred.  This exists
+        only to satisfy the provider surface used by blackbox file staging; on
+        remote providers (e.g. E2B) this is where real uploads happen.
+        """
+        del lease, dist_path
+        return {
+            "files_written": 0,
+            "skipped": True,
+            "reason": "shared_fs",
+            "requested": len(files),
+        }
+
     def _connect_manager(self, *, ray_address: str | None = None) -> Any:
         try:
             import ray
