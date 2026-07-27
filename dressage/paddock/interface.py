@@ -70,6 +70,23 @@ class BlackboxPaddock(Paddock):
         """Execute a shell command in a blackbox session."""
 
     @abc.abstractmethod
+    async def write_files(
+        self,
+        state: Any,
+        *,
+        files: list[dict[str, Any]],
+        dist_path: str = "/data",
+    ) -> dict[str, Any]:
+        """Upload files into the sandbox service.
+
+        Intended for provider-side file delivery that bypasses the agent
+        protocol, e.g. installing an agent harness at runtime or staging
+        reward/grader scripts before scoring.  Each entry describes one file
+        (source + destination); ``dist_path`` is the default prefix applied to
+        relative destination paths.
+        """
+
+    @abc.abstractmethod
     async def pause(
         self,
         traj_id: str | None = None,

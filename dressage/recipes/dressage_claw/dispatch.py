@@ -193,11 +193,7 @@ async def _write_stage_files(paddock: Any, state: Any, metadata: dict[str, Any],
     files = metadata.get(f"{stage}_files")
     if not files:
         return
-    write_files = getattr(paddock, "write_files", None)
-    if write_files is None:
-        logger.warning("paddock has no write_files; skipping %s_files (%d files)", stage, len(files))
-        return
-    await maybe_await(write_files(state, files=files))
+    await maybe_await(paddock.write_files(state, files=files))
 
 
 # ---------------------------------------------------------------------------
