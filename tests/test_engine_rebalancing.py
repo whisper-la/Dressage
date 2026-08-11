@@ -3274,6 +3274,137 @@ def test_attempted_mooncake_miss_updates_mooncake_hit_history():
     run(scenario())
 
 
+@pytest.mark.parametrize("owner_kind", ["missing", "existing"])
+def test_fallback_without_reusable_prefix_does_not_record_mooncake_miss(
+    owner_kind,
+):
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=1),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        owner = None if owner_kind == "missing" else source
+        rebalancer.sessions["fallback"] = SessionRoutingState(
+            owner_worker_url=owner,
+            fingerprint=fingerprint,
+            seen_engines=set() if owner is None else {source},
+        )
+        lease = RoutingLease(
+            decision=RoutingDecision(
+                session_id="fallback",
+                source_worker_url=owner,
+                target_worker_url=target,
+                cache_fingerprint=fingerprint,
+                state=SchedulerState.ACTIVE,
+                reason="new_session_projected_load_fallback",
+                moved=owner is not None,
+            ),
+            worker_url=target,
+            reserved_tokens=100,
+            base_tokens=0,
+            started_monotonic=time.monotonic(),
+            context_tokens=100,
+        )
+
+        await rebalancer.complete(
+            lease,
+            response_meta={
+                "queue_time": 0.0,
+                "e2e_latency": 1.0,
+                "cached_tokens": 0,
+                "cached_tokens_details": {
+                    "device": 0,
+                    "host": 0,
+                    "storage": 0,
+                },
+                "decode_throughput": 10.0,
+            },
+            output_tokens=1,
+            committed_tokens=[1] * 101,
+        )
+
+        observation = rebalancer._observations[-1]
+        assert observation["attempted_cache_source"] == "none"
+        assert observation["actual_cache_source"] == "none"
+        assert (
+            rebalancer.cache_hits.estimate_probability(
+                fingerprint=fingerprint,
+                engine_url=target,
+                cache_source=CacheSource.MOONCAKE,
+                context_tokens=100,
+            )
+            == 1.0
+        )
+
+    run(scenario())
+
+
+def test_fallback_with_reusable_prefix_keeps_mooncake_classification():
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=1),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        rebalancer.sessions["fallback-migration"] = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            seen_engines={source},
+        )
+        lease = RoutingLease(
+            decision=RoutingDecision(
+                session_id="fallback-migration",
+                source_worker_url=source,
+                target_worker_url=target,
+                cache_fingerprint=fingerprint,
+                state=SchedulerState.ACTIVE,
+                reason="test",
+                moved=True,
+            ),
+            worker_url=target,
+            reserved_tokens=100,
+            base_tokens=80,
+            started_monotonic=time.monotonic(),
+            context_tokens=100,
+        )
+
+        await rebalancer.complete(
+            lease,
+            response_meta={
+                "queue_time": 0.0,
+                "e2e_latency": 1.0,
+                "cached_tokens": 80,
+                "cached_tokens_details": {
+                    "device": 0,
+                    "host": 0,
+                    "storage": 80,
+                },
+                "decode_throughput": 10.0,
+            },
+            output_tokens=1,
+            committed_tokens=[1] * 101,
+        )
+
+        observation = rebalancer._observations[-1]
+        assert observation["attempted_cache_source"] == "mooncake"
+        assert observation["actual_cache_source"] == "mooncake"
+
+    run(scenario())
+
+
 def test_local_completion_uses_device_and_host_tiers_and_trains_queue():
     client = ControlPlaneClient(shared_l3=True)
     rebalancer = EngineRebalancer(

@@ -2636,7 +2636,9 @@ class EngineRebalancer:
                 estimate = None
                 predicted_queue_seconds = None
             structural_source = (
-                CacheSource.LOCAL
+                CacheSource.NONE
+                if old_owner is None or lease.base_tokens <= 0
+                else CacheSource.LOCAL
                 if old_owner == new_owner or target_seen_before
                 else CacheSource.MOONCAKE
                 if deployment.shared_l3
