@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -951,7 +952,7 @@ def test_remote_context_risk_switches_from_transport_margin_to_path_error_p90():
         estimated_seconds=4.0,
         hit_probability=1.0,
         restore_seconds=4.0,
-        restore_sample_source="offline",
+        restore_sample_source="offline_lower_bound",
     )
     assert (
         rebalancer._context_prediction_risk(
@@ -961,11 +962,11 @@ def test_remote_context_risk_switches_from_transport_margin_to_path_error_p90():
             estimate=estimate,
             context_tokens=100,
         )
-        == 0.2
+        == (0.2, False)
     )
-    rebalancer._runtime_restore_errors[("fp", "a", "b", context_bucket(100))].extend(
-        [0.2, 0.3]
-    )
+    rebalancer._runtime_restore_errors[
+        ("fp", CacheSource.MOONCAKE, "a", "b", context_bucket(100))
+    ].extend([0.2, 0.3])
     assert (
         rebalancer._context_prediction_risk(
             fingerprint="fp",
@@ -974,7 +975,7 @@ def test_remote_context_risk_switches_from_transport_margin_to_path_error_p90():
             estimate=estimate,
             context_tokens=100,
         )
-        == 0.3
+        == (0.3, True)
     )
 
 
@@ -985,18 +986,370 @@ def test_default_runtime_restore_model_becomes_ready_at_16_samples():
         model_id="model",
         model_config=simple_model_config(),
     )
-    key = ("fp", "source", "target", context_bucket(100))
+    key = (
+        "fp",
+        CacheSource.MOONCAKE,
+        "source",
+        "target",
+        context_bucket(100),
+    )
     rebalancer._runtime_restore_seconds[key].extend([0.5] * 15)
     result = rebalancer._runtime_calibration_snapshot()["results"][0]
     assert result["restore_sample_count"] == 15
     assert result["model_ready"] is False
-    assert result["effective_source"] == "offline"
+    assert result["effective_source"] == "offline_lower_bound"
 
     rebalancer._runtime_restore_seconds[key].append(0.5)
     result = rebalancer._runtime_calibration_snapshot()["results"][0]
     assert result["restore_sample_count"] == 16
     assert result["model_ready"] is True
     assert result["effective_source"] == "runtime"
+
+
+def test_local_runtime_restore_uses_pool_before_exact_series():
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=3),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        for _ in range(3):
+            rebalancer.performance.observe(
+                fingerprint=fingerprint,
+                engine_url=target,
+                running=0,
+                context_tokens=100,
+                queue_seconds=0.0,
+                context_seconds=5.0,
+                cached_tokens=0,
+                output_tokens=1,
+                decode_throughput=10.0,
+                cache_source=CacheSource.NONE,
+            )
+        session = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            previous_committed_tokens=[1] * 80,
+            seen_engines={source, target},
+        )
+
+        cold = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.LOCAL,
+        )
+        assert cold is not None
+        assert cold.restore_seconds == 0.0
+        assert cold.restore_sample_source == "none"
+
+        _, pool_key = rebalancer._runtime_restore_keys(
+            fingerprint=fingerprint,
+            cache_source=CacheSource.LOCAL,
+            source_engine=source,
+            target_engine=target,
+            bucket=context_bucket(100),
+        )
+        assert pool_key is not None
+        rebalancer._runtime_restore_pool_seconds[pool_key].extend([0.4, 0.5, 0.6])
+        pooled = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.LOCAL,
+        )
+        assert pooled is not None
+        assert pooled.restore_seconds == 0.6
+        assert pooled.restore_sample_source == "runtime_pool"
+
+        exact_key, _ = rebalancer._runtime_restore_keys(
+            fingerprint=fingerprint,
+            cache_source=CacheSource.LOCAL,
+            source_engine=source,
+            target_engine=target,
+            bucket=context_bucket(100),
+        )
+        rebalancer._runtime_restore_seconds[exact_key].extend([0.1, 0.2, 0.3])
+        exact = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.LOCAL,
+        )
+        assert exact is not None
+        assert exact.restore_seconds == 0.3
+        assert exact.restore_sample_source == "runtime"
+
+    run(scenario())
+
+
+def test_runtime_restore_pool_keys_group_only_matching_topology_and_bucket():
+    client = ControlPlaneClient(shared_l3=True)
+    client.urls = [
+        "http://node-a:30000",
+        "http://node-a:30001",
+        "http://node-b:30000",
+        "http://node-c:30000",
+    ]
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+    run(rebalancer.refresh())
+    fingerprint = rebalancer.deployments[client.urls[2]].cache_fingerprint
+
+    def pool_key(source, target, cache_source, bucket="0-8k"):
+        return rebalancer._runtime_restore_keys(
+            fingerprint=fingerprint,
+            cache_source=cache_source,
+            source_engine=source,
+            target_engine=target,
+            bucket=bucket,
+        )[1]
+
+    assert pool_key(client.urls[0], client.urls[2], CacheSource.LOCAL) == pool_key(
+        client.urls[1], client.urls[2], CacheSource.LOCAL
+    )
+    assert pool_key(
+        client.urls[0], client.urls[2], CacheSource.MOONCAKE
+    ) == pool_key(client.urls[1], client.urls[2], CacheSource.MOONCAKE)
+    assert pool_key(
+        client.urls[0], client.urls[2], CacheSource.MOONCAKE
+    ) != pool_key(client.urls[3], client.urls[2], CacheSource.MOONCAKE)
+    assert pool_key(
+        client.urls[0], client.urls[2], CacheSource.MOONCAKE
+    ) != pool_key(client.urls[0], client.urls[2], CacheSource.MOONCAKE, "8-16k")
+
+
+def test_mooncake_runtime_restore_uses_four_sample_provisional_pool():
+    async def benchmark(task, payload):
+        del task
+        return CalibrationSample(
+            latency_seconds=0.01,
+            bandwidth_bytes_per_second=max(1, payload * 10),
+        )
+
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True),
+        model_id="model",
+        model_config=simple_model_config(),
+        calibration_benchmark=benchmark,
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        for _ in range(rebalancer.config.min_samples):
+            rebalancer.performance.observe(
+                fingerprint=fingerprint,
+                engine_url=target,
+                running=0,
+                context_tokens=100,
+                queue_seconds=0.0,
+                context_seconds=5.0,
+                cached_tokens=0,
+                output_tokens=1,
+                decode_throughput=10.0,
+                cache_source=CacheSource.NONE,
+            )
+        session = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            previous_committed_tokens=[1] * 80,
+            seen_engines={source},
+        )
+
+        offline = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.MOONCAKE,
+        )
+        assert offline is not None
+        assert offline.restore_sample_source == "offline_lower_bound"
+        offline_seconds = offline.restore_seconds
+        pooled_seconds = offline_seconds + 1.0
+        _, pool_key = rebalancer._runtime_restore_keys(
+            fingerprint=fingerprint,
+            cache_source=CacheSource.MOONCAKE,
+            source_engine=source,
+            target_engine=target,
+            bucket=context_bucket(100),
+        )
+        assert pool_key is not None
+        rebalancer._runtime_restore_pool_seconds[pool_key].extend(
+            [pooled_seconds] * 3
+        )
+        sparse = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.MOONCAKE,
+        )
+        assert sparse is not None
+        assert sparse.restore_seconds == offline_seconds
+        assert sparse.restore_sample_source == "offline_lower_bound"
+
+        rebalancer._runtime_restore_pool_seconds[pool_key].append(pooled_seconds)
+        provisional = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.MOONCAKE,
+        )
+        assert provisional is not None
+        assert provisional.restore_seconds == pooled_seconds
+        assert provisional.restore_sample_source == "runtime_pool_provisional"
+
+        rebalancer._runtime_restore_pool_seconds[pool_key].extend(
+            [pooled_seconds] * 12
+        )
+        ready_pool = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.MOONCAKE,
+        )
+        assert ready_pool is not None
+        assert ready_pool.restore_sample_source == "runtime_pool"
+
+        exact_key, _ = rebalancer._runtime_restore_keys(
+            fingerprint=fingerprint,
+            cache_source=CacheSource.MOONCAKE,
+            source_engine=source,
+            target_engine=target,
+            bucket=context_bucket(100),
+        )
+        rebalancer._runtime_restore_seconds[exact_key].extend([0.5] * 16)
+        exact = rebalancer._estimate_context(
+            session=session,
+            source_engine=source,
+            target_engine=target,
+            context_tokens=100,
+            base_tokens=80,
+            cache_source=CacheSource.MOONCAKE,
+        )
+        assert exact is not None
+        assert exact.restore_seconds == 0.5
+        assert exact.restore_sample_source == "runtime"
+
+    run(scenario())
+
+
+def test_runtime_restore_risk_uses_matching_pool_and_reports_queue_coverage():
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=4),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        estimate = ContextRecoveryEstimate(
+            cache_source=CacheSource.MOONCAKE,
+            expected_cached_tokens=80,
+            expected_prefill_tokens=20,
+            estimated_seconds=1.0,
+            hit_probability=1.0,
+            restore_seconds=1.0,
+            restore_sample_source="offline_lower_bound",
+        )
+        assert rebalancer._context_prediction_risk(
+            fingerprint=fingerprint,
+            source_engine=source,
+            target_engine=target,
+            estimate=estimate,
+            context_tokens=100,
+        ) == (0.05, False)
+
+        _, pool_key = rebalancer._runtime_restore_keys(
+            fingerprint=fingerprint,
+            cache_source=CacheSource.MOONCAKE,
+            source_engine=source,
+            target_engine=target,
+            bucket=context_bucket(100),
+        )
+        assert pool_key is not None
+        rebalancer._runtime_restore_pool_errors[pool_key].extend(
+            [0.2, 0.3, 0.4, 0.5]
+        )
+        assert rebalancer._context_prediction_risk(
+            fingerprint=fingerprint,
+            source_engine=source,
+            target_engine=target,
+            estimate=estimate,
+            context_tokens=100,
+        ) == (0.5, True)
+
+    run(scenario())
+
+
+def test_local_runtime_restore_risk_does_not_reuse_cold_context_errors():
+    rebalancer = EngineRebalancer(
+        ControlPlaneClient(),
+        config=EngineRebalancingConfig(enabled=True, min_samples=1),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+    rebalancer.performance.observe(
+        fingerprint="fp",
+        engine_url="target",
+        running=0,
+        context_tokens=100,
+        queue_seconds=0.0,
+        context_seconds=10.0,
+        cached_tokens=80,
+        output_tokens=1,
+        decode_throughput=10.0,
+        estimated_context_seconds=0.0,
+        cache_source=CacheSource.LOCAL,
+    )
+    estimate = ContextRecoveryEstimate(
+        cache_source=CacheSource.LOCAL,
+        expected_cached_tokens=80,
+        expected_prefill_tokens=20,
+        estimated_seconds=1.0,
+        hit_probability=1.0,
+        restore_seconds=0.5,
+        restore_sample_source="runtime_pool",
+    )
+
+    assert rebalancer._context_prediction_risk(
+        fingerprint="fp",
+        source_engine="source",
+        target_engine="target",
+        estimate=estimate,
+        context_tokens=100,
+    ) == (0.0, False)
 
 
 def test_shared_l3_calibration_plan_executes_required_restore_links():
@@ -1228,31 +1581,62 @@ def test_router_waiting_backoff_and_runtime_outage_logging(caplog, monkeypatch):
 
 
 def test_runtime_calibration_reports_percentiles_and_source_threshold():
+    client = ControlPlaneClient(shared_l3=True)
     rebalancer = EngineRebalancer(
-        ControlPlaneClient(),
+        client,
         config=EngineRebalancingConfig(enabled=True, min_samples=3),
         model_id="model",
         model_config=simple_model_config(),
     )
-    ready_key = ("fp", "source", "target", "8K-16K")
+    run(rebalancer.refresh())
+    source, target = client.urls
+    fingerprint = rebalancer.deployments[target].cache_fingerprint
+    bucket = context_bucket(100)
+    ready_key = (
+        fingerprint,
+        CacheSource.MOONCAKE,
+        source,
+        target,
+        bucket,
+    )
     rebalancer._runtime_restore_seconds[ready_key].extend([1.0, 2.0, 3.0])
     rebalancer._runtime_restore_throughputs[ready_key].extend([100.0, 200.0, 300.0])
     rebalancer._runtime_restore_errors[ready_key].extend([0.1, 0.2, 0.3])
-    cold_key = ("fp", "source", "cold-target", "8K-16K")
+    _, pool_key = rebalancer._runtime_restore_keys(
+        fingerprint=fingerprint,
+        cache_source=CacheSource.MOONCAKE,
+        source_engine=source,
+        target_engine=target,
+        bucket=context_bucket(100),
+    )
+    assert pool_key is not None
+    rebalancer._runtime_restore_pool_seconds[pool_key].extend([1.0, 2.0, 3.0])
+    rebalancer._runtime_restore_pool_errors[pool_key].extend([0.1, 0.2, 0.3])
+    cold_key = (
+        fingerprint,
+        CacheSource.LOCAL,
+        source,
+        target,
+        bucket,
+    )
     rebalancer._runtime_restore_seconds[cold_key].extend([4.0, 5.0])
 
+    snapshot = rebalancer._runtime_calibration_snapshot()
+    assert snapshot["sample_semantics"] == "recovery_residual"
     results = {
-        (item["source_engine"], item["target_engine"]): item
-        for item in rebalancer._runtime_calibration_snapshot()["results"]
+        (item["source_engine"], item["target_engine"], item["cache_source"]): item
+        for item in snapshot["results"]
     }
-    ready = results[("source", "target")]
+    ready = results[(source, target, "mooncake")]
     assert ready["restore_sample_count"] == 3
     assert ready["restore_seconds_p75"] == 3.0
     assert ready["restore_throughput_bytes_per_second_p25"] == 100.0
     assert ready["prediction_error_seconds_p90"] == 0.3
+    assert ready["pool_sample_count"] == 3
+    assert ready["pool_error_sample_count"] == 3
     assert ready["model_ready"] is True
     assert ready["effective_source"] == "runtime"
-    assert results[("source", "cold-target")]["effective_source"] == "offline"
+    assert results[(source, target, "local")]["effective_source"] == "none"
 
 
 def test_calibration_snapshots_are_atomic_periodic_and_final(tmp_path):
@@ -1273,7 +1657,13 @@ def test_calibration_snapshots_are_atomic_periodic_and_final(tmp_path):
         await rebalancer._drain_snapshot_tasks()
         directory = rebalancer._snapshot_store.directory
         assert (directory / "initial.json").is_file()
-        runtime_key = ("fp", "source", "target", "8K-16K")
+        runtime_key = (
+            "fp",
+            CacheSource.MOONCAKE,
+            "source",
+            "target",
+            "8K-16K",
+        )
         rebalancer._runtime_restore_seconds[runtime_key].extend([1.0, 2.0, 3.0])
         rebalancer._runtime_restore_throughputs[runtime_key].extend(
             [100.0, 200.0, 300.0]
@@ -2420,7 +2810,7 @@ def test_heterogeneous_scheduler_uses_single_step_budget_for_decode_cost():
     run(scenario())
 
 
-def test_queue_and_context_risks_are_summed_and_can_reject_migration():
+def test_queue_and_context_risks_are_summed_and_can_reject_migration(monkeypatch):
     client = ControlPlaneClient()
     rebalancer = EngineRebalancer(
         client,
@@ -2495,6 +2885,26 @@ def test_queue_and_context_risks_are_summed_and_can_reject_migration():
         finally:
             await rebalancer.fail(lease)
 
+        original_context_risk = rebalancer._context_prediction_risk
+
+        def target_context_covers_queue(**kwargs):
+            risk, _ = original_context_risk(**kwargs)
+            return risk, kwargs["target_engine"] == target
+
+        monkeypatch.setattr(
+            rebalancer, "_context_prediction_risk", target_context_covers_queue
+        )
+        combined_lease = await rebalancer.acquire(
+            session_id="risk-blocked",
+            input_ids=[1] * 100,
+        )
+        try:
+            assert combined_lease.decision.queue_risk_seconds == 1.0
+            assert combined_lease.decision.context_risk_seconds == 3.0
+            assert combined_lease.decision.decision_risk_seconds == 4.0
+        finally:
+            await rebalancer.fail(combined_lease)
+
     run(scenario())
 
 
@@ -2560,7 +2970,16 @@ def test_completion_pairs_actual_queue_with_the_selected_path_prediction():
     run(scenario())
 
 
-def test_actual_mooncake_hit_overrides_full_prefill_prediction_classification():
+@pytest.mark.parametrize(
+    ("predicted_source", "cached_details"),
+    [
+        (CacheSource.NONE, None),
+        (CacheSource.LOCAL, {"device": 0, "host": 0, "storage": 80}),
+    ],
+)
+def test_actual_mooncake_hit_overrides_prediction_classification(
+    predicted_source, cached_details
+):
     client = ControlPlaneClient(shared_l3=True)
     rebalancer = EngineRebalancer(
         client,
@@ -2578,8 +2997,8 @@ def test_actual_mooncake_hit_overrides_full_prefill_prediction_classification():
             fingerprint=fingerprint,
             seen_engines={source},
         )
-        predicted_full_prefill = ContextRecoveryEstimate(
-            cache_source=CacheSource.NONE,
+        predicted_context = ContextRecoveryEstimate(
+            cache_source=predicted_source,
             expected_cached_tokens=0,
             expected_prefill_tokens=100,
             estimated_seconds=1.0,
@@ -2593,7 +3012,7 @@ def test_actual_mooncake_hit_overrides_full_prefill_prediction_classification():
                 cache_fingerprint=fingerprint,
                 state=SchedulerState.ACTIVE,
                 reason="test",
-                target_context=predicted_full_prefill,
+                target_context=predicted_context,
                 moved=True,
             ),
             worker_url=target,
@@ -2602,19 +3021,340 @@ def test_actual_mooncake_hit_overrides_full_prefill_prediction_classification():
             started_monotonic=time.monotonic(),
             context_tokens=100,
         )
+        response_meta = {
+            "queue_time": 0.0,
+            "e2e_latency": 1.0,
+            "cached_tokens": 80,
+            "decode_throughput": 10.0,
+        }
+        if cached_details is not None:
+            response_meta["cached_tokens_details"] = cached_details
+        await rebalancer.complete(
+            lease,
+            response_meta=response_meta,
+            output_tokens=1,
+            committed_tokens=[1] * 101,
+        )
+        observation = rebalancer._observations[-1]
+        assert observation["attempted_cache_source"] == predicted_source.value
+        assert observation["actual_cache_source"] == "mooncake"
+        assert rebalancer.performance.snapshot()["prefill_samples"] == 0
+        if predicted_source is CacheSource.LOCAL:
+            assert rebalancer.cache_hits.estimate_probability(
+                fingerprint=fingerprint,
+                engine_url=target,
+                cache_source=CacheSource.LOCAL,
+                context_tokens=100,
+            ) == 0.0
+
+    run(scenario())
+
+
+def test_mooncake_completion_uses_tier_details_and_recovery_residual():
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=1),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        rebalancer.performance.observe(
+            fingerprint=fingerprint,
+            engine_url=target,
+            running=0,
+            context_tokens=100,
+            queue_seconds=0.0,
+            context_seconds=5.0,
+            cached_tokens=0,
+            output_tokens=1,
+            decode_throughput=10.0,
+            cache_source=CacheSource.NONE,
+        )
+        queue_samples_before = rebalancer.performance.snapshot()["queue_samples"]
+        rebalancer.sessions["storage-hit"] = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            seen_engines={source},
+        )
+        estimate = ContextRecoveryEstimate(
+            cache_source=CacheSource.MOONCAKE,
+            expected_cached_tokens=80,
+            expected_prefill_tokens=20,
+            estimated_seconds=1.3,
+            hit_probability=1.0,
+            restore_seconds=0.3,
+            restore_sample_source="offline_lower_bound",
+        )
+        lease = RoutingLease(
+            decision=RoutingDecision(
+                session_id="storage-hit",
+                source_worker_url=source,
+                target_worker_url=target,
+                cache_fingerprint=fingerprint,
+                state=SchedulerState.ACTIVE,
+                reason="test",
+                target_context=estimate,
+                target_queue_seconds=0.2,
+                moved=True,
+            ),
+            worker_url=target,
+            reserved_tokens=100,
+            base_tokens=80,
+            started_monotonic=time.monotonic(),
+            context_tokens=100,
+        )
+
         await rebalancer.complete(
             lease,
             response_meta={
-                "queue_time": 0.0,
-                "e2e_latency": 1.0,
+                "queue_time": 1.2,
+                "e2e_latency": 2.7,
                 "cached_tokens": 80,
+                "cached_tokens_details": {
+                    "device": 0,
+                    "host": 0,
+                    "storage": 80,
+                },
+                "decode_throughput": 10.0,
+            },
+            output_tokens=6,
+            committed_tokens=[1] * 106,
+        )
+
+        observation = rebalancer._observations[-1]
+        assert observation["attempted_cache_source"] == "mooncake"
+        assert observation["actual_cache_source"] == "mooncake"
+        assert observation["cached_tokens_details"] == {
+            "device": 0,
+            "host": 0,
+            "storage": 80,
+        }
+        assert observation["raw_queue_seconds"] == pytest.approx(1.2)
+        assert observation["actual_queue_seconds"] == pytest.approx(1.2)
+        assert observation["queue_training_seconds"] is None
+        assert observation["actual_nondecode_seconds"] == pytest.approx(2.2)
+        assert observation["recovery_residual_seconds"] == pytest.approx(1.0)
+        assert observation["nondecode_prediction_error_seconds"] == pytest.approx(
+            0.7
+        )
+        assert (
+            rebalancer.performance.snapshot()["queue_samples"]
+            == queue_samples_before
+        )
+        assert any(
+            value == pytest.approx(1.0)
+            for values in rebalancer._runtime_restore_seconds.values()
+            for value in values
+        )
+
+        samples_before = sum(
+            len(values) for values in rebalancer._runtime_restore_seconds.values()
+        )
+        rebalancer.sessions["missing-queue"] = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            seen_engines={source},
+        )
+        missing_queue_lease = replace(
+            lease,
+            decision=replace(
+                lease.decision,
+                session_id="missing-queue",
+                target_queue_seconds=None,
+            ),
+            started_monotonic=time.monotonic(),
+        )
+        await rebalancer.complete(
+            missing_queue_lease,
+            response_meta={
+                "queue_time": 1.2,
+                "e2e_latency": 2.7,
+                "cached_tokens": 80,
+                "cached_tokens_details": {
+                    "device": 0,
+                    "host": 0,
+                    "storage": 80,
+                },
+                "decode_throughput": 10.0,
+            },
+            output_tokens=6,
+            committed_tokens=[1] * 106,
+        )
+        assert (
+            sum(
+                len(values)
+                for values in rebalancer._runtime_restore_seconds.values()
+            )
+            == samples_before
+        )
+
+    run(scenario())
+
+
+def test_attempted_mooncake_miss_updates_mooncake_hit_history():
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=1),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source, target = client.urls
+        fingerprint = rebalancer.deployments[target].cache_fingerprint
+        rebalancer.sessions["storage-miss"] = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            seen_engines={source},
+        )
+        estimate = ContextRecoveryEstimate(
+            cache_source=CacheSource.MOONCAKE,
+            expected_cached_tokens=80,
+            expected_prefill_tokens=20,
+            estimated_seconds=1.0,
+            hit_probability=1.0,
+        )
+        lease = RoutingLease(
+            decision=RoutingDecision(
+                session_id="storage-miss",
+                source_worker_url=source,
+                target_worker_url=target,
+                cache_fingerprint=fingerprint,
+                state=SchedulerState.ACTIVE,
+                reason="test",
+                target_context=estimate,
+                target_queue_seconds=0.2,
+                moved=True,
+            ),
+            worker_url=target,
+            reserved_tokens=100,
+            base_tokens=80,
+            started_monotonic=time.monotonic(),
+            context_tokens=100,
+        )
+
+        await rebalancer.complete(
+            lease,
+            response_meta={
+                "queue_time": 0.5,
+                "e2e_latency": 5.5,
+                "cached_tokens": 0,
+                "cached_tokens_details": {
+                    "device": 0,
+                    "host": 0,
+                    "storage": 0,
+                },
                 "decode_throughput": 10.0,
             },
             output_tokens=1,
             committed_tokens=[1] * 101,
         )
-        assert rebalancer._observations[-1]["cache_source"] == "mooncake"
-        assert rebalancer.performance.snapshot()["prefill_samples"] == 0
+
+        observation = rebalancer._observations[-1]
+        assert observation["attempted_cache_source"] == "mooncake"
+        assert observation["actual_cache_source"] == "none"
+        assert observation["queue_training_seconds"] is None
+        assert (
+            rebalancer.cache_hits.estimate_probability(
+                fingerprint=fingerprint,
+                engine_url=target,
+                cache_source=CacheSource.MOONCAKE,
+                context_tokens=100,
+            )
+            == 0.0
+        )
+
+    run(scenario())
+
+
+def test_local_completion_uses_device_and_host_tiers_and_trains_queue():
+    client = ControlPlaneClient(shared_l3=True)
+    rebalancer = EngineRebalancer(
+        client,
+        config=EngineRebalancingConfig(enabled=True, min_samples=1),
+        model_id="model",
+        model_config=simple_model_config(),
+    )
+
+    async def scenario():
+        await rebalancer.refresh()
+        source = client.urls[0]
+        fingerprint = rebalancer.deployments[source].cache_fingerprint
+        rebalancer.performance.observe(
+            fingerprint=fingerprint,
+            engine_url=source,
+            running=0,
+            context_tokens=100,
+            queue_seconds=0.0,
+            context_seconds=5.0,
+            cached_tokens=0,
+            output_tokens=1,
+            decode_throughput=10.0,
+            cache_source=CacheSource.NONE,
+        )
+        queue_samples_before = rebalancer.performance.snapshot()["queue_samples"]
+        rebalancer.sessions["local-hit"] = SessionRoutingState(
+            owner_worker_url=source,
+            fingerprint=fingerprint,
+            seen_engines={source},
+        )
+        estimate = ContextRecoveryEstimate(
+            cache_source=CacheSource.LOCAL,
+            expected_cached_tokens=80,
+            expected_prefill_tokens=20,
+            estimated_seconds=1.0,
+            hit_probability=1.0,
+        )
+        lease = RoutingLease(
+            decision=RoutingDecision(
+                session_id="local-hit",
+                source_worker_url=source,
+                target_worker_url=source,
+                cache_fingerprint=fingerprint,
+                state=SchedulerState.ACTIVE,
+                reason="test",
+                source_context=estimate,
+                source_queue_seconds=0.2,
+            ),
+            worker_url=source,
+            reserved_tokens=100,
+            base_tokens=80,
+            started_monotonic=time.monotonic(),
+            context_tokens=100,
+        )
+
+        await rebalancer.complete(
+            lease,
+            response_meta={
+                "queue_time": 0.2,
+                "e2e_latency": 1.7,
+                "cached_tokens": 80,
+                "cached_tokens_details": {
+                    "device": 20,
+                    "host": 60,
+                    "storage": 0,
+                },
+                "decode_throughput": 10.0,
+            },
+            output_tokens=6,
+            committed_tokens=[1] * 106,
+        )
+
+        observation = rebalancer._observations[-1]
+        assert observation["actual_cache_source"] == "local"
+        assert observation["queue_training_seconds"] == pytest.approx(0.2)
+        assert observation["recovery_residual_seconds"] == pytest.approx(0.0)
+        assert (
+            rebalancer.performance.snapshot()["queue_samples"]
+            == queue_samples_before + 1
+        )
 
     run(scenario())
 
@@ -2740,10 +3480,19 @@ def test_enabled_proxy_places_first_request_directly_and_reports_state():
         assert "live_queue_metrics_available" in engine_load
         observation = loads["recent_context_observations"][0]
         assert observation["cache_source"] == "none"
+        assert observation["attempted_cache_source"] == "none"
+        assert observation["actual_cache_source"] == "none"
+        assert observation["cached_tokens_details"] is None
         assert observation["actual_cached_tokens"] == 0
         assert observation["actual_prefill_tokens"] > 0
         assert "predicted_queue_seconds" in observation
         assert "actual_queue_seconds" in observation
+        assert "raw_queue_seconds" in observation
+        assert "queue_training_seconds" in observation
+        assert "actual_nondecode_seconds" in observation
+        assert "recovery_residual_seconds" in observation
+        assert "nondecode_prediction_error_seconds" in observation
+        assert "restore_sample_source" in observation
         assert "queue_prediction_error_seconds" in observation
         assert "queue_risk_seconds" in observation
         assert "context_risk_seconds" in observation

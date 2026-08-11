@@ -48,6 +48,31 @@ from .transfer_calibrator import (
 logger = logging.getLogger(__name__)
 
 _MIN_SGLANG_VERSION = (0, 5, 15, 1)
+_PROVISIONAL_MOONCAKE_SAMPLES = 4
+_RuntimeRestoreKey = tuple[str, CacheSource, str, str, str]
+_RuntimeRestorePoolKey = tuple[str, CacheSource, tuple[str, ...], str]
+
+
+def _cached_token_breakdown(
+    response_meta: Mapping[str, Any], cached_tokens: int
+) -> tuple[int, int, int] | None:
+    details = response_meta.get("cached_tokens_details")
+    if not isinstance(details, Mapping) or {"device", "host", "storage"}.isdisjoint(
+        details
+    ):
+        return None
+    try:
+        values = tuple(
+            max(0, int(details.get(key) or 0))
+            for key in ("device", "host", "storage")
+        )
+    except (TypeError, ValueError):
+        return None
+    return None if cached_tokens > 0 and sum(values) == 0 else values
+
+
+def _runtime_samples(values: Mapping[Any, Deque[float]], key: Any) -> list[float]:
+    return [] if key is None else list(values.get(key, ()))
 
 
 class _RouterUnavailableError(RuntimeError):
@@ -515,15 +540,12 @@ class EngineRebalancer:
         self.excluded_engines: dict[str, str] = {}
         self._decisions: Deque[dict[str, Any]] = deque(maxlen=config.history_size)
         self._observations: Deque[dict[str, Any]] = deque(maxlen=config.history_size)
-        self._runtime_restore_seconds: dict[tuple[str, str, str, str], Deque[float]] = (
-            defaultdict(lambda: deque(maxlen=config.history_size))
-        )
-        self._runtime_restore_errors: dict[tuple[str, str, str, str], Deque[float]] = (
-            defaultdict(lambda: deque(maxlen=config.history_size))
-        )
-        self._runtime_restore_throughputs: dict[
-            tuple[str, str, str, str], Deque[float]
-        ] = defaultdict(lambda: deque(maxlen=config.history_size))
+        runtime_values = lambda: deque(maxlen=config.history_size)  # noqa: E731
+        self._runtime_restore_seconds = defaultdict(runtime_values)
+        self._runtime_restore_errors = defaultdict(runtime_values)
+        self._runtime_restore_throughputs = defaultdict(runtime_values)
+        self._runtime_restore_pool_seconds = defaultdict(runtime_values)
+        self._runtime_restore_pool_errors = defaultdict(runtime_values)
         self._online_request_count = 0
         self._snapshot_store = (
             CalibrationSnapshotStore(
@@ -1893,29 +1915,33 @@ class EngineRebalancer:
             )
             if target_estimate is None:
                 continue
-            context_risk = self._context_prediction_risk(
+            source_risk = self._context_prediction_risk(
                 fingerprint=fingerprint,
                 source_engine=source,
                 target_engine=source,
                 estimate=source_estimate.context,
                 context_tokens=len(input_ids),
-            ) + self._context_prediction_risk(
+            )
+            target_risk = self._context_prediction_risk(
                 fingerprint=fingerprint,
                 source_engine=source,
                 target_engine=target,
                 estimate=target_estimate.context,
                 context_tokens=len(input_ids),
             )
-            queue_risk = self.performance.queue_risk_seconds(
-                fingerprint=fingerprint,
-                engine_url=source,
-                projected_running=source_estimate.projected_running,
-                projected_load_score=source_estimate.projected_load_score,
-            ) + self.performance.queue_risk_seconds(
-                fingerprint=fingerprint,
-                engine_url=target,
-                projected_running=target_estimate.projected_running,
-                projected_load_score=target_estimate.projected_load_score,
+            context_risk = source_risk[0] + target_risk[0]
+            queue_risk = sum(
+                self.performance.queue_risk_seconds(
+                    fingerprint=fingerprint,
+                    engine_url=step.engine_url,
+                    projected_running=step.projected_running,
+                    projected_load_score=step.projected_load_score,
+                )
+                for step, (_, covers_queue) in (
+                    (source_estimate, source_risk),
+                    (target_estimate, target_risk),
+                )
+                if not covers_queue
             )
             risk = max(
                 self.config.min_risk_ms / 1000.0,
@@ -2199,6 +2225,32 @@ class EngineRebalancer:
         denominator = max(abs(left), abs(right), 1e-9)
         return abs(left - right) / denominator <= 0.10
 
+    def _runtime_restore_keys(
+        self,
+        *,
+        fingerprint: str,
+        cache_source: CacheSource,
+        source_engine: str,
+        target_engine: str,
+        bucket: str,
+    ) -> tuple[_RuntimeRestoreKey, _RuntimeRestorePoolKey | None]:
+        exact = (fingerprint, cache_source, source_engine, target_engine, bucket)
+        source = self.deployments.get(source_engine)
+        target = self.deployments.get(target_engine)
+        if source is None or target is None:
+            return exact, None
+        target_node = self._calibration_node_for(target) or target.node_id
+        if cache_source is CacheSource.LOCAL:
+            path_class = ("local", target_node)
+        else:
+            path_class = (
+                "mooncake",
+                self._calibration_node_for(source) or source.node_id,
+                target_node,
+                *self._path_readiness(source_engine, target_engine).required_links,
+            )
+        return exact, (fingerprint, cache_source, path_class, bucket)
+
     def _estimate_context(
         self,
         *,
@@ -2246,22 +2298,34 @@ class EngineRebalancer:
                 required_links=readiness.required_links,
                 payload_bytes=profile.estimate_bytes(base_tokens),
             )
-            restore_sample_source = "offline"
-        if cache_source is not CacheSource.NONE:
-            runtime_samples = list(
-                self._runtime_restore_seconds.get(
-                    (
-                        deployment.cache_fingerprint,
-                        source_engine,
-                        target_engine,
-                        context_bucket(context_tokens),
-                    ),
-                    (),
-                )
+            restore_sample_source = "offline_lower_bound"
+        if cache_source is not CacheSource.NONE and source_engine is not None:
+            exact_key, pool_key = self._runtime_restore_keys(
+                fingerprint=deployment.cache_fingerprint,
+                cache_source=cache_source,
+                source_engine=source_engine,
+                target_engine=target_engine,
+                bucket=context_bucket(context_tokens),
             )
-            if len(runtime_samples) >= self.config.min_samples:
-                restore_seconds = percentile(runtime_samples, 0.75)
+            exact_samples = _runtime_samples(self._runtime_restore_seconds, exact_key)
+            pool_samples = _runtime_samples(
+                self._runtime_restore_pool_seconds, pool_key
+            )
+            if len(exact_samples) >= self.config.min_samples:
+                restore_seconds = percentile(exact_samples, 0.75)
                 restore_sample_source = "runtime"
+            elif len(pool_samples) >= self.config.min_samples:
+                restore_seconds = percentile(pool_samples, 0.75)
+                restore_sample_source = "runtime_pool"
+            elif (
+                cache_source is CacheSource.MOONCAKE
+                and len(pool_samples) >= _PROVISIONAL_MOONCAKE_SAMPLES
+            ):
+                restore_seconds = max(
+                    restore_seconds or 0.0,
+                    percentile(pool_samples, 0.75),
+                )
+                restore_sample_source = "runtime_pool_provisional"
         return self.context_model.estimate(
             fingerprint=deployment.cache_fingerprint,
             engine_url=target_engine,
@@ -2281,28 +2345,37 @@ class EngineRebalancer:
         target_engine: str,
         estimate: ContextRecoveryEstimate,
         context_tokens: int,
-    ) -> float:
-        if estimate.cache_source is CacheSource.MOONCAKE:
-            errors = list(
-                self._runtime_restore_errors.get(
-                    (
-                        fingerprint,
-                        source_engine,
-                        target_engine,
-                        context_bucket(context_tokens),
-                    ),
-                    (),
-                )
+    ) -> tuple[float, bool]:
+        if estimate.cache_source is not CacheSource.NONE:
+            exact_key, pool_key = self._runtime_restore_keys(
+                fingerprint=fingerprint,
+                cache_source=estimate.cache_source,
+                source_engine=source_engine,
+                target_engine=target_engine,
+                bucket=context_bucket(context_tokens),
             )
+            errors = _runtime_samples(self._runtime_restore_errors, exact_key)
+            pool_errors = _runtime_samples(self._runtime_restore_pool_errors, pool_key)
+            covers_queue = estimate.cache_source is CacheSource.MOONCAKE
             if len(errors) >= self.config.min_samples:
-                return percentile(errors, 0.90)
-            if estimate.restore_sample_source == "offline":
-                return 0.05 * estimate.restore_seconds
-        return self.performance.risk_seconds(
-            fingerprint=fingerprint,
-            source=estimate.cache_source,
-            context_tokens=context_tokens,
-            minimum_seconds=0.0,
+                return percentile(errors, 0.90), covers_queue
+            pool_min_samples = self.config.min_samples
+            if covers_queue:
+                pool_min_samples = _PROVISIONAL_MOONCAKE_SAMPLES
+            if len(pool_errors) >= pool_min_samples:
+                return percentile(pool_errors, 0.90), covers_queue
+            if estimate.restore_sample_source == "offline_lower_bound":
+                return 0.05 * estimate.restore_seconds, False
+            if not covers_queue and estimate.restore_sample_source != "none":
+                return 0.0, False
+        return (
+            self.performance.risk_seconds(
+                fingerprint=fingerprint,
+                source=estimate.cache_source,
+                context_tokens=context_tokens,
+                minimum_seconds=0.0,
+            ),
+            False,
         )
 
     def _healthy_urls(self, *, now: float) -> list[str]:
@@ -2562,24 +2635,37 @@ class EngineRebalancer:
             else:
                 estimate = None
                 predicted_queue_seconds = None
-            # ``cached_tokens`` is the native SGLang outcome and therefore
-            # wins over the Proxy prediction.  In particular, a path modeled
-            # as full prefill may still hit shared Mooncake; classifying that
-            # response as NONE would contaminate the prefill-throughput model.
-            if cached_tokens <= 0:
-                source = CacheSource.NONE
-            elif old_owner == new_owner or target_seen_before:
-                source = CacheSource.LOCAL
-            elif deployment.shared_l3:
-                source = CacheSource.MOONCAKE
+            structural_source = (
+                CacheSource.LOCAL
+                if old_owner == new_owner or target_seen_before
+                else CacheSource.MOONCAKE
+                if deployment.shared_l3
+                else CacheSource.NONE
+            )
+            attempted_source = (
+                structural_source if estimate is None else estimate.cache_source
+            )
+            cache_breakdown = _cached_token_breakdown(response_meta, cached_tokens)
+            if cache_breakdown is None:
+                actual_source = (
+                    CacheSource.NONE if cached_tokens <= 0 else structural_source
+                )
             else:
-                source = CacheSource.LOCAL
+                device_tokens, host_tokens, storage_tokens = cache_breakdown
+                actual_source = (
+                    CacheSource.MOONCAKE
+                    if storage_tokens > 0
+                    else CacheSource.LOCAL
+                    if device_tokens + host_tokens > 0
+                    else CacheSource.NONE
+                )
+            storage_affected = CacheSource.MOONCAKE in (attempted_source, actual_source)
             observation = self.performance.observe(
                 fingerprint=deployment.cache_fingerprint,
                 engine_url=new_owner,
                 running=(load.running if load is not None else 0),
                 context_tokens=context_tokens,
-                queue_seconds=queue_seconds,
+                queue_seconds=None if storage_affected else queue_seconds,
                 context_seconds=context_seconds,
                 cached_tokens=cached_tokens,
                 output_tokens=output_tokens,
@@ -2587,35 +2673,38 @@ class EngineRebalancer:
                 projected_load_score=lease.projected_load_score,
                 predicted_queue_seconds=predicted_queue_seconds,
                 estimated_context_seconds=(
-                    None if estimate is None else estimate.estimated_seconds
+                    None
+                    if estimate is None or storage_affected
+                    else estimate.estimated_seconds
                 ),
-                cache_source=source,
+                cache_source=actual_source,
             )
-            runtime_key = (
-                None
-                if old_owner is None
-                else (
-                    deployment.cache_fingerprint,
-                    old_owner,
-                    new_owner,
-                    context_bucket(context_tokens),
+            runtime_key = runtime_pool_key = None
+            if old_owner is not None and actual_source is not CacheSource.NONE:
+                runtime_key, runtime_pool_key = self._runtime_restore_keys(
+                    fingerprint=deployment.cache_fingerprint,
+                    cache_source=actual_source,
+                    source_engine=old_owner,
+                    target_engine=new_owner,
+                    bucket=context_bucket(context_tokens),
                 )
-            )
-            if (
-                estimate is not None
-                and estimate.cache_source is CacheSource.MOONCAKE
-                and observation.context_seconds is not None
-                and runtime_key is not None
-            ):
-                self._runtime_restore_errors[runtime_key].append(
-                    abs(estimate.estimated_seconds - observation.context_seconds)
+            if cache_breakdown is None:
+                attempted_cached_tokens = (
+                    observation.cached_tokens
+                    if attempted_source is actual_source
+                    else 0
                 )
+            else:
+                attempted_cached_tokens = {
+                    CacheSource.LOCAL: device_tokens + host_tokens,
+                    CacheSource.MOONCAKE: storage_tokens,
+                }.get(attempted_source, 0)
             self.cache_hits.observe(
                 fingerprint=deployment.cache_fingerprint,
                 engine_url=new_owner,
-                cache_source=source,
+                cache_source=attempted_source,
                 estimated_base_tokens=lease.base_tokens,
-                actual_cached_tokens=observation.cached_tokens,
+                actual_cached_tokens=attempted_cached_tokens,
                 context_tokens=context_tokens,
             )
             prefill_throughput = self.performance.prefill_throughput(
@@ -2624,23 +2713,62 @@ class EngineRebalancer:
                 context_tokens=context_tokens,
             )
             actual_prefill_tokens = max(0, context_tokens - observation.cached_tokens)
+            actual_nondecode_seconds = max(0.0, e2e_seconds - decode_seconds)
+            prediction_error = None
+            if (
+                estimate is not None
+                and attempted_source is actual_source
+                and runtime_key is not None
+            ):
+                estimated_seconds = estimate.estimated_seconds
+                actual_seconds = observation.context_seconds
+                if actual_source is CacheSource.MOONCAKE:
+                    actual_seconds = actual_nondecode_seconds
+                    estimated_seconds = (
+                        None
+                        if predicted_queue_seconds is None
+                        else predicted_queue_seconds + estimated_seconds
+                    )
+                if actual_seconds is not None and estimated_seconds is not None:
+                    prediction_error = abs(estimated_seconds - actual_seconds)
+            if prediction_error is not None and runtime_key is not None:
+                for values, key in (
+                    (self._runtime_restore_errors, runtime_key),
+                    (self._runtime_restore_pool_errors, runtime_pool_key),
+                ):
+                    if key is not None:
+                        values[key].append(prediction_error)
             restore_seconds_actual = None
             restore_throughput = None
+            recovery_base_seconds = None
             if (
-                source is not CacheSource.NONE
+                actual_source is CacheSource.MOONCAKE
+                and predicted_queue_seconds is not None
+            ):
+                recovery_base_seconds = (
+                    actual_nondecode_seconds - predicted_queue_seconds
+                )
+            elif not storage_affected:
+                recovery_base_seconds = observation.context_seconds
+            if (
+                actual_source is not CacheSource.NONE
                 and runtime_key is not None
                 and observation.cached_tokens > 0
-                and observation.context_seconds is not None
                 and prefill_throughput is not None
+                and recovery_base_seconds is not None
             ):
                 restore_seconds_actual = max(
                     0.0,
-                    observation.context_seconds
+                    recovery_base_seconds
                     - actual_prefill_tokens / prefill_throughput,
                 )
-                self._runtime_restore_seconds[runtime_key].append(
-                    restore_seconds_actual
-                )
+            if restore_seconds_actual is not None and runtime_key is not None:
+                for values, key in (
+                    (self._runtime_restore_seconds, runtime_key),
+                    (self._runtime_restore_pool_seconds, runtime_pool_key),
+                ):
+                    if key is not None:
+                        values[key].append(restore_seconds_actual)
                 profile = self.profiles.get(deployment.cache_fingerprint)
                 if profile is not None and restore_seconds_actual > 0:
                     restore_throughput = (
@@ -2654,7 +2782,18 @@ class EngineRebalancer:
                 {
                     "session_id": lease.decision.session_id,
                     "engine_url": new_owner,
-                    "cache_source": source.value,
+                    "cache_source": actual_source.value,
+                    "attempted_cache_source": attempted_source.value,
+                    "actual_cache_source": actual_source.value,
+                    "cached_tokens_details": (
+                        None
+                        if cache_breakdown is None
+                        else {
+                            "device": device_tokens,
+                            "host": host_tokens,
+                            "storage": storage_tokens,
+                        }
+                    ),
                     "expected_cached_tokens": (
                         None if estimate is None else estimate.expected_cached_tokens
                     ),
@@ -2674,12 +2813,20 @@ class EngineRebalancer:
                         else lease.decision.target_context.estimated_seconds
                     ),
                     "predicted_queue_seconds": observation.predicted_queue_seconds,
-                    "actual_queue_seconds": observation.queue_seconds,
+                    "actual_queue_seconds": queue_seconds,
+                    "raw_queue_seconds": queue_seconds,
+                    "queue_training_seconds": observation.queue_seconds,
                     "queue_prediction_error_seconds": (
                         observation.queue_prediction_error_seconds
                     ),
                     "actual_context_seconds": observation.context_seconds,
                     "restore_seconds": restore_seconds_actual,
+                    "recovery_residual_seconds": restore_seconds_actual,
+                    "actual_nondecode_seconds": actual_nondecode_seconds,
+                    "restore_sample_source": (
+                        None if estimate is None else estimate.restore_sample_source
+                    ),
+                    "nondecode_prediction_error_seconds": prediction_error,
                     "restore_throughput": restore_throughput,
                     "prefill_throughput": prefill_throughput,
                     "hit_probability": (
@@ -2762,18 +2909,45 @@ class EngineRebalancer:
         keys = sorted(
             set(self._runtime_restore_seconds)
             | set(self._runtime_restore_throughputs)
-            | set(self._runtime_restore_errors)
+            | set(self._runtime_restore_errors),
+            key=lambda key: (key[0], key[1].value, key[2], key[3], key[4]),
         )
         results: list[dict[str, Any]] = []
-        for fingerprint, source_engine, target_engine, bucket in keys:
-            key = (fingerprint, source_engine, target_engine, bucket)
-            restore_samples = list(self._runtime_restore_seconds.get(key, ()))
-            throughput_samples = list(self._runtime_restore_throughputs.get(key, ()))
-            error_samples = list(self._runtime_restore_errors.get(key, ()))
+        for fingerprint, cache_source, source_engine, target_engine, bucket in keys:
+            key = (fingerprint, cache_source, source_engine, target_engine, bucket)
+            restore_samples = _runtime_samples(self._runtime_restore_seconds, key)
+            throughput_samples = _runtime_samples(
+                self._runtime_restore_throughputs, key
+            )
+            error_samples = _runtime_samples(self._runtime_restore_errors, key)
             model_ready = len(restore_samples) >= self.config.min_samples
+            _, pool_key = self._runtime_restore_keys(
+                fingerprint=fingerprint,
+                cache_source=cache_source,
+                source_engine=source_engine,
+                target_engine=target_engine,
+                bucket=bucket,
+            )
+            pool_samples = _runtime_samples(
+                self._runtime_restore_pool_seconds, pool_key
+            )
+            pool_errors = _runtime_samples(
+                self._runtime_restore_pool_errors, pool_key
+            )
+            if model_ready:
+                effective_source = "runtime"
+            elif len(pool_samples) >= self.config.min_samples:
+                effective_source = "runtime_pool"
+            elif cache_source is CacheSource.LOCAL:
+                effective_source = "none"
+            elif len(pool_samples) >= _PROVISIONAL_MOONCAKE_SAMPLES:
+                effective_source = "runtime_pool_provisional"
+            else:
+                effective_source = "offline_lower_bound"
             results.append(
                 {
                     "cache_fingerprint": fingerprint,
+                    "cache_source": cache_source.value,
                     "source_engine": source_engine,
                     "target_engine": target_engine,
                     "context_bucket": bucket,
@@ -2793,12 +2967,15 @@ class EngineRebalancer:
                     "prediction_error_seconds_p90": (
                         None if not error_samples else percentile(error_samples, 0.90)
                     ),
+                    "pool_sample_count": len(pool_samples),
+                    "pool_error_sample_count": len(pool_errors),
                     "model_ready": model_ready,
-                    "effective_source": "runtime" if model_ready else "offline",
+                    "effective_source": effective_source,
                 }
             )
         return {
             "min_samples": self.config.min_samples,
+            "sample_semantics": "recovery_residual",
             "results": results,
         }
 
