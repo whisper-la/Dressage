@@ -71,5 +71,68 @@ class MultiHeadAttention(nn.Module):
 
         return self.out_proj(y)
 
+import torch
+
+def ppo_loss(
+    log_probs,        # [B, T] 当前 policy 的 log prob
+    old_log_probs,    # [B, T] 采样时 policy 的 log prob
+    advantages,       # [B, T] 或 [B]
+    values,           # [B, T] 当前 value
+    returns,          # [B, T] value target
+    response_mask,    # [B, T]
+    clip_eps=0.2,
+    vf_coef=0.5,
+    entropy=None,
+    ent_coef=0.01,
+):
+    if advantages.dim() == 1:
+        advantages = advantages.unsqueeze(-1)
+
+    ratio = torch.exp(log_probs - old_log_probs)
+
+    policy_loss_1 = ratio * advantages
+    policy_loss_2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    policy_loss = -torch.min(policy_loss_1, policy_loss_2)
+
+    value_loss = (values - returns).pow(2)
+
+    loss = policy_loss + vf_coef * value_loss
+
+    if entropy is not None:
+        loss = loss - ent_coef * entropy
+
+    loss = loss * response_mask
+    return loss.sum() / response_mask.sum()
 
 
+import torch
+
+def grpo_loss(
+    log_probs,        # [B, G, T] 当前 policy 的 log prob
+    old_log_probs,    # [B, G, T] 采样时 policy 的 log prob
+    ref_log_probs,    # [B, G, T] reference model 的 log prob
+    rewards,          # [B, G]
+    response_mask,    # [B, G, T]
+    clip_eps=0.2,
+    beta=0.04,
+    eps=1e-8,
+):
+    group_mean = rewards.mean(dim=1, keepdim=True)
+    group_std = rewards.std(dim=1, keepdim=True)
+
+    advantages = (rewards - group_mean) / (group_std + eps)
+    advantages = advantages.detach().unsqueeze(-1)
+
+    ratio = torch.exp(log_probs - old_log_probs)
+
+    policy_loss_1 = ratio * advantages
+    policy_loss_2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    policy_loss = -torch.min(policy_loss_1, policy_loss_2)
+
+    log_ratio_ref = ref_log_probs - log_probs
+    kl = torch.exp(log_ratio_ref) - log_ratio_ref - 1
+
+    loss = policy_loss + beta * kl
+
+    loss = loss * response_mask
+    return loss.sum() / response_mask.sum()
