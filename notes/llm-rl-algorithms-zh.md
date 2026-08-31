@@ -25,12 +25,14 @@
   - [3.2 PPO 的裁剪目标](#32-ppo-的裁剪目标)
   - [3.3 KL 惩罚：不要跑太远](#33-kl-惩罚不要跑太远)
   - [3.4 PPO 完整目标与四个模型](#34-ppo-完整目标与四个模型)
+  - [3.5 PPO 的组成部分与代码计算](#35-ppo-的组成部分与代码计算)
 - [四、去掉 critic：GRPO](#四去掉-criticgrpo)
   - [4.1 核心思想：组内相对优势](#41-核心思想组内相对优势)
   - [4.2 GRPO 目标函数](#42-grpo-目标函数)
   - [4.3 GRPO 与 PPO 的对比](#43-grpo-与-ppo-的对比)
-  - [4.4 近亲：RLOO 与 Reinforce++ baseline](#44-近亲rloo-与-reinforce-baseline)
-  - [4.5 GRPO 的数学偏差与 Dr. GRPO](#45-grpo-的数学偏差与-dr-grpo)
+  - [4.4 GRPO 的组成部分与代码计算](#44-grpo-的组成部分与代码计算)
+  - [4.5 近亲：RLOO 与 Reinforce++ baseline](#45-近亲rloo-与-reinforce-baseline)
+  - [4.6 GRPO 的数学偏差与 Dr. GRPO](#46-grpo-的数学偏差与-dr-grpo)
 - [五、GSPO 与 CISPO：重要性采样的稳定化](#五gspo-与-cispo重要性采样的稳定化)
   - [5.1 GSPO：序列级重要性采样](#51-gspo序列级重要性采样)
   - [5.2 CISPO：裁剪 IS 权重，保留所有 token 的梯度](#52-cispo裁剪-is-权重保留所有-token-的梯度)
@@ -549,6 +551,78 @@ PPO 训练时同时存在的四个模型：
 
 四个模型（其中两个与 Actor 同尺寸）带来的显存和工程复杂度，是"去 critic"算法兴起的直接原因。
 
+
+### 3.5 PPO 的组成部分与代码计算
+
+**结论：PPO loss 不是一个单独公式，而是由三类信号组成：policy loss 负责更新生成概率，value loss 负责训练 critic，entropy/KL 负责约束策略不要塌缩或跑偏。面试时最重要的是说清楚每个张量从哪里来。**
+
+一批 PPO 训练数据通常来自一次 rollout：旧策略 `π_old` 对 prompt 生成 response，同时保存当时每个 token 的 `old_log_probs`。训练时再用当前 actor 前向一次，得到新的 `log_probs`；用 critic 前向得到 `values`；用 reward model 或环境奖励得到 `rewards`，再结合 `values` 算出 `returns` 和 `advantages`。
+
+| 变量 | 形状示例 | 从哪里来 | 作用 |
+|---|---:|---|---|
+| `log_probs` | `[B, T]` | 当前 actor 对已生成 token 重新算 logprob | 表示新策略 `π_θ` |
+| `old_log_probs` | `[B, T]` | rollout 采样时保存 | 表示采样策略 `π_old` |
+| `rewards` | `[B, T]` 或 `[B]` | RM、规则验证器、KL penalty 后的奖励 | 提供优化目标 |
+| `values` | `[B, T]` | 当前 critic/value head 预测 | 估计 `V(s_t)` |
+| `returns` | `[B, T]` | 由 reward-to-go 或 GAE 目标算出 | 作为 value 的监督标签 |
+| `advantages` | `[B, T]` | 通常由 GAE 算出，也可近似 `returns - values` | 决定 token 概率该升还是降 |
+| `response_mask` | `[B, T]` | 数据处理阶段生成 | 只让 response token 参与 loss |
+
+最简计算链路：
+
+```text
+rollout response
+  -> 保存 old_log_probs
+  -> reward model / verifier 给 reward
+  -> critic 给 values
+  -> 用 rewards + values 算 returns 和 advantages
+  -> 当前 actor 重新算 log_probs
+  -> PPO clip loss 更新 actor，value loss 更新 critic
+```
+
+代码对应如下：
+
+```python
+import torch
+
+
+def ppo_loss(
+    log_probs,
+    old_log_probs,
+    advantages,
+    values,
+    returns,
+    response_mask,
+    clip_eps=0.2,
+    vf_coef=0.5,
+):
+    if advantages.dim() == 1:
+        advantages = advantages.unsqueeze(-1)
+
+    ratio = torch.exp(log_probs - old_log_probs)
+
+    pg_loss_1 = ratio * advantages
+    pg_loss_2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    policy_loss = -torch.min(pg_loss_1, pg_loss_2)
+
+    value_loss = (values - returns).pow(2)
+
+    loss = policy_loss + vf_coef * value_loss
+    loss = loss * response_mask
+    return loss.sum() / response_mask.sum()
+```
+
+逐行解释：
+
+1. `ratio = exp(log_probs - old_log_probs)`：计算新旧策略概率比，表示当前模型相比采样时模型，把这个 token 的概率提高或降低了多少。
+2. `ratio * advantages`：如果 `advantage > 0`，希望提高该 token 概率；如果 `advantage < 0`，希望降低该 token 概率。
+3. `clamp(ratio, 1-eps, 1+eps)`：限制单步策略更新幅度，避免新策略相对旧策略变化太猛。
+4. `-min(...)`：PPO 原目标是最大化，训练框架做梯度下降，所以加负号变成 loss。
+5. `(values - returns)^2`：训练 critic，让 value model 更准地预测未来回报；value 准了，后续 advantage 才稳定。
+6. `response_mask`：屏蔽 prompt 和 padding，只在需要学习的 response token 上计算 loss。
+
+面试短答：**PPO 的 advantage 通常来自 GAE，需要 critic；`old_log_probs` 来自 rollout 时的旧策略，`log_probs` 来自训练时当前策略。PPO 用二者的概率比做 clipped policy loss，同时用 `(returns - values)^2` 训练 critic。**
+
 ---
 
 ## 四、去掉 critic：GRPO
@@ -609,14 +683,107 @@ $$L^{\mathrm{GRPO}}(\theta) = \mathbb{E}\!\left[\frac{1}{G}\sum_i\frac{1}{|y_i|}
 
 GRPO 的代价：需要对每个 prompt 采样一组（`G` 倍的采样成本），且当一组内奖励全相同时优势全为 0（无梯度信号）——后者正是 DAPO"动态采样"要解决的问题。
 
-### 4.4 近亲：RLOO 与 Reinforce++ baseline
+
+### 4.4 GRPO 的组成部分与代码计算
+
+**结论：GRPO 可以看成“去掉 critic 的 PPO”。它不再用 `values/returns/GAE` 算优势，而是对同一个 prompt 采样多个回答，用组内 reward 的相对高低直接构造 advantage。**
+
+GRPO 的一批数据通常长这样：batch 里有 `B` 个 prompt，每个 prompt 采样 `G` 个 response，每个 response 有 `T` 个 token。因此常见张量形状是 `[B, G, T]`。
+
+| 变量 | 形状示例 | 从哪里来 | 作用 |
+|---|---:|---|---|
+| `log_probs` | `[B, G, T]` | 当前 actor 对已采样 response 重新算 logprob | 表示新策略 `π_θ` |
+| `old_log_probs` | `[B, G, T]` | rollout 采样时保存 | 表示采样策略 `π_old` |
+| `ref_log_probs` | `[B, G, T]` | 冻结 reference model 前向得到 | 用于 KL 约束 |
+| `rewards` | `[B, G]` | verifier/RM 对每个 response 的打分 | 组内比较好坏 |
+| `advantages` | `[B, G]` | 由同组 rewards 归一化得到 | 一个 response 一个标量优势 |
+| `response_mask` | `[B, G, T]` | 数据处理阶段生成 | 只统计有效 response token |
+
+GRPO 的优势计算不是：
+
+```text
+advantages = returns - values
+```
+
+而是：
+
+```text
+advantages = (每个回答的 reward - 同 prompt 下 G 个回答的平均 reward) / 标准差
+```
+
+所以同一个 prompt 下，如果 4 个回答奖励是：
+
+```text
+[0.0, 1.0, 1.0, 0.0]
+```
+
+均值是 `0.5`，高于均值的回答得到正优势，低于均值的回答得到负优势。这样模型会提高好回答的 token 概率，降低差回答的 token 概率。因为一个回答通常只有终点奖励，所以这个标量 advantage 会广播到该回答的所有 response token。
+
+代码对应如下：
+
+```python
+import torch
+
+
+def grpo_loss(
+    log_probs,
+    old_log_probs,
+    ref_log_probs,
+    rewards,
+    response_mask,
+    clip_eps=0.2,
+    beta=0.04,
+    eps=1e-8,
+):
+    group_mean = rewards.mean(dim=1, keepdim=True)
+    group_std = rewards.std(dim=1, keepdim=True)
+    advantages = (rewards - group_mean) / (group_std + eps)
+    advantages = advantages.detach().unsqueeze(-1)
+
+    ratio = torch.exp(log_probs - old_log_probs)
+
+    pg_loss_1 = ratio * advantages
+    pg_loss_2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages
+    policy_loss = -torch.min(pg_loss_1, pg_loss_2)
+
+    log_ratio_ref = ref_log_probs - log_probs
+    kl = torch.exp(log_ratio_ref) - log_ratio_ref - 1
+
+    loss = policy_loss + beta * kl
+    loss = loss * response_mask
+    return loss.sum() / response_mask.sum()
+```
+
+逐行解释：
+
+1. `group_mean/std`：只在同一个 prompt 的 `G` 个回答之间统计，不跨 prompt 比较。
+2. `advantages`：表示该回答比同组平均水平好多少；`detach()` 表示它只是训练信号，不让梯度回传到 reward。
+3. `unsqueeze(-1)`：把 `[B, G]` 变成 `[B, G, 1]`，让同一个回答的所有 token 共用同一个 advantage。
+4. `ratio`：仍然是 PPO 的新旧策略概率比，GRPO 没有改变 clip 的基本结构。
+5. `policy_loss`：正优势 response 的 token 概率被提高，负优势 response 的 token 概率被降低，但更新幅度受 clip 限制。
+6. `kl`：约束当前 actor 不要偏离 reference model 太远；`beta` 越大，训练越保守。
+7. `response_mask`：只对真实生成 token 求平均，不让 padding 影响 loss。
+
+PPO 和 GRPO 最核心区别：
+
+| 对比点 | PPO | GRPO |
+|---|---|---|
+| advantage 来源 | `rewards + values` 经过 GAE | 同 prompt 下 group reward 归一化 |
+| 是否需要 critic | 需要 | 不需要 |
+| 是否有 value loss | 有，`(returns - values)^2` | 没有 |
+| 采样方式 | 一个 prompt 可采一个或多个 response | 每个 prompt 必须采一组 response |
+| 主要代价 | 多一个 critic，显存/训练复杂 | 每个 prompt 要采 `G` 个回答，rollout 成本更高 |
+
+面试短答：**GRPO 复用 PPO 的 ratio 和 clip，但把 advantage 从 GAE 换成组内相对 reward，因此不需要 value model，也没有 value loss。它的代价是每个 prompt 要采多个 response，并且如果一组 reward 全相同，advantage 会接近 0，训练信号会变弱。**
+
+### 4.5 近亲：RLOO 与 Reinforce++ baseline
 
 同属"无 critic、用样本统计当 baseline"的家族：
 
 - **RLOO（REINFORCE Leave-One-Out）**：baseline 用"同组**其他**样本"的均值（留一法），即 `b_i = mean(r_{j≠i})`，理论上更无偏。
 - **Reinforce++**：给朴素 REINFORCE 加上 PPO 的工程技巧（token 级 KL、全局 batch 优势归一化、裁剪），但不强制分组。slime 的 `reinforce_plus_plus_baseline` 是其带组内 baseline 的变体——在 [reward_post_process.py](../dressage/training/reward_post_process.py) 第 118-125 行与 `grpo`/`gspo` 走同一套均值归一化逻辑。
 
-### 4.5 GRPO 的数学偏差与 Dr. GRPO
+### 4.6 GRPO 的数学偏差与 Dr. GRPO
 
 **结论：GRPO 的目标函数里藏着两个不易察觉的数学偏差——组内 std 归一化会放大"过易/过难"组的权重（难度偏置）；`1/|y_i|` 的序列内平均会稀释长回复的梯度（长度偏置，对长错误回复惩罚不足 → 回复越训越长）。Dr. GRPO（Understanding R1-Zero-Like Training，arXiv 2503.20783）的修正是"做减法"：去掉 std 归一化、改用 token 级聚合。slime 中分别对应 `--disable-grpo-std-normalization` 与 `--calculate-per-token-loss`。**
 
