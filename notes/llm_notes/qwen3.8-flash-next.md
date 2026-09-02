@@ -162,7 +162,9 @@ flowchart LR
 
 GDN 出自论文《Gated Delta Networks: Improving Mamba2 with Delta Rule》（arXiv:2502.05246），是线性注意力的一支：不维护随长度增长的 KV cache，而是维护一个固定大小的循环状态 $S_t \in \mathbb{R}^{d_k \times d_v}$，用带门控的 delta 规则更新：
 
-$$S_t = S_{t-1}\,\mathrm{Diag}(\boldsymbol{\alpha}_t)\left(I - \beta_t k_t k_t^\top\right) + \beta_t\, v_t k_t^\top$$
+$$
+S_t = S_{t-1}\,\mathrm{Diag}(\boldsymbol{\alpha}_t)\left(I - \beta_t k_t k_t^\top\right) + \beta_t\, v_t k_t^\top
+$$
 
 其中 $\boldsymbol{\alpha}_t$ 是逐通道遗忘门，$\beta_t$ 是学习到的写入门，$k_t$ 归一化。直觉上：先按门控遗忘旧内容，再用 delta 规则"擦掉旧值、写入新值"。完整的从 Linear Attention → DeltaNet → GDN → KDA 推导链见 [linear-attention-to-gdn-to-kda.md](linear-attention-to-gdn-to-kda.md)，本文不重复。
 
@@ -229,7 +231,9 @@ indexer 自己也是一个微型注意力，但它的 key 序列被压缩了 4 �
 
 query $q^I_{t,h}$（4 个头）对压缩 key $\bar{k}^I_b$ 的打分采用无 softmax 的 ReLU 打分：
 
-$$s_{t,b} = \frac{1}{\sqrt{128}} \sum_{h=1}^{4} \mathrm{ReLU}\left(\left\langle q^I_{t,h},\, \bar{k}^I_b \right\rangle\right)$$
+$$
+s_{t,b} = \frac{1}{\sqrt{128}} \sum_{h=1}^{4} \mathrm{ReLU}\left(\left\langle q^I_{t,h},\, \bar{k}^I_b \right\rangle\right)
+$$
 
 然后保留分数最高的 512 个块，展开回 $512 \times 4 = 2048$ 个逻辑 token 位置，再附上当前尚未成块的 0–3 个 token。**最终稀疏注意力看到的 token 数上界为 $2048 + 3 = 2051$，与上下文长度无关。**
 
@@ -333,13 +337,17 @@ Qwen 的组合做了减法：原始 Hyper-Connection 有额外的分支间混合
 
 **读（Mix）**：用低秩投影（bottleneck rank 320）从 4 条分支生成逐元素读门，把 4 条流压回 1 个 hidden：
 
-$$h_t = \sum_{i=1}^{4} g^{r}_{t,i} \odot R_{t,i}, \qquad g^r_t = \sigma\!\left(W_{\uparrow}\, \phi\!\left(W_{\downarrow}\, \mathrm{concat}_i(R_{t,i})\right)\right)$$
+$$
+h_t = \sum_{i=1}^{4} g^{r}_{t,i} \odot R_{t,i}, \qquad g^r_t = \sigma\!\left(W_{\uparrow}\, \phi\!\left(W_{\downarrow}\, \mathrm{concat}_i(R_{t,i})\right)\right)
+$$
 
 其中 $W_{\downarrow}$ 把输入压到 rank-320 瓶颈，$\odot$ 是逐元素乘，门 $g^r_{t,i} \in \mathbb{R}^{d}$ 是 per-token、per-channel 的。
 
 **写（Combine）**：子层输出 $o_t$ 经 4 个 per-branch 标量注入系数写回各分支：
 
-$$\widetilde{R}_{t,i} = R_{t,i} + \alpha_{t,i} \cdot o_t, \qquad i = 1, \dots, 4$$
+$$
+\widetilde{R}_{t,i} = R_{t,i} + \alpha_{t,i} \cdot o_t, \qquad i = 1, \dots, 4
+$$
 
 | 配置 | 数值 |
 | --- | --- |
@@ -400,15 +408,25 @@ GR 与 DeepSeek-V4 的 mHC（流形约束超连接，见 [deepseek-v4.md](deepse
 
 PLE 不是简单把查表结果加到 hidden 上，而是一套嵌入 Gated Residual 体系的注入流程（SGLang 博客给出的数据流）：
 
-$$E_t \rightarrow K_t \in \mathbb{R}^{4 \times 2560}, \qquad E_t \rightarrow V_t \in \mathbb{R}^{2560}$$
+$$
+E_t \rightarrow K_t \in \mathbb{R}^{4 \times 2560}, \qquad E_t \rightarrow V_t \in \mathbb{R}^{2560}
+$$
 
-$$R_t \rightarrow Q_t \in \mathbb{R}^{4 \times 2560}$$
+$$
+R_t \rightarrow Q_t \in \mathbb{R}^{4 \times 2560}
+$$
 
-$$g_t = \mathrm{Gate}\!\left(\mathrm{Norm}(Q_t),\, \mathrm{Norm}(K_t)\right) \in \mathbb{R}^{4 \times 1}, \qquad U_t = g_t \odot V_t$$
+$$
+g_t = \mathrm{Gate}\!\left(\mathrm{Norm}(Q_t),\, \mathrm{Norm}(K_t)\right) \in \mathbb{R}^{4 \times 1}, \qquad U_t = g_t \odot V_t
+$$
 
-$$\Delta_t = U_t + \mathrm{SiLU}\!\left(\mathrm{DWConv}\!\left(\mathrm{RMSNorm}(U_t)\right)\right)$$
+$$
+\Delta_t = U_t + \mathrm{SiLU}\!\left(\mathrm{DWConv}\!\left(\mathrm{RMSNorm}(U_t)\right)\right)
+$$
 
-$$\widetilde{R}_t = R_t + \Delta_t, \qquad \widetilde{R}_t \xrightarrow{\mathrm{HC\ Mix}} h_t \in \mathbb{R}^{2560}$$
+$$
+\widetilde{R}_t = R_t + \Delta_t, \qquad \widetilde{R}_t \xrightarrow{\mathrm{HC\ Mix}} h_t \in \mathbb{R}^{2560}
+$$
 
 即：查表得到的 $E_t$ 被投影成与 4 条残差分支对齐的 key/value；由当前残差状态 $R_t$ 产生的 query 与之算门控，决定"这条记忆往每条分支写多少"；再经 short-depthwise-conv 注入局部时序混合，最后作为增量写回 4 条分支，随即进入该层的 HC Mix。注意两点：
 
@@ -537,7 +555,9 @@ Muon 的适用前提是参数"本质上充当二维线性映射"。Flash-Next �
 
 Muon 速览（通用算法，非本模型特有）：对动量 $M_t$ 做 Newton-Schulz 迭代近似正交化，再按形状缩放更新：
 
-$$M_t = \mu M_{t-1} + G_t, \qquad O_t = \mathrm{NewtonSchulz5}(M_t), \qquad W_t \leftarrow W_{t-1} - \eta_t\, O_t \sqrt{\max\!\left(1,\; \frac{d_{out}}{d_{in}}\right)}$$
+$$
+M_t = \mu M_{t-1} + G_t, \qquad O_t = \mathrm{NewtonSchulz5}(M_t), \qquad W_t \leftarrow W_{t-1} - \eta_t\, O_t \sqrt{\max\!\left(1,\; \frac{d_{out}}{d_{in}}\right)}
+$$
 
 正交化把更新矩阵的奇异值推向全 1，使每个奇异方向获得等幅度更新；独立 benchmark 报告 Muon 在适用参数上约 2× FLOPs 效率（非官方对本模型的实测）。
 

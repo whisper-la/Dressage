@@ -105,7 +105,9 @@ Dressage 走的是**RLVR 路线**：底层训练引擎 slime 的 `--advantage-es
 
 信息熵衡量分布 `P` 的不确定性（随机性）：
 
-$$H(P) = -\sum_x P(x)\log P(x)$$
+$$
+H(P) = -\sum_x P(x)\log P(x)
+$$
 
 - 分布越**均匀**（越不确定）→ 熵越大
 - 分布越**尖锐**（越确定，如 one-hot）→ 熵越小（最小为 0）
@@ -115,7 +117,9 @@ $$H(P) = -\sum_x P(x)\log P(x)$$
 
 交叉熵衡量"用分布 `Q` 编码来自分布 `P` 的数据"的平均代价：
 
-$$H(P, Q) = -\sum_x P(x)\log Q(x)$$
+$$
+H(P, Q) = -\sum_x P(x)\log Q(x)
+$$
 
 - 当 `P = Q` 时，`H(P, Q) = H(P)`（退化为自熵）
 - 当 `P` 固定时，最小化交叉熵等价于让 `Q` 逼近 `P`
@@ -124,7 +128,9 @@ $$H(P, Q) = -\sum_x P(x)\log Q(x)$$
 
 KL 散度（Kullback-Leibler divergence）衡量两个分布之间的差异：
 
-$$\mathrm{KL}(P\|Q) = \sum_x P(x)\log\frac{P(x)}{Q(x)} = H(P, Q) - H(P)$$
+$$
+\mathrm{KL}(P\|Q) = \sum_x P(x)\log\frac{P(x)}{Q(x)} = H(P, Q) - H(P)
+$$
 
 关键性质：
 
@@ -182,7 +188,9 @@ J(θ) = E_{τ~π_θ} [ R(τ) ]
 
 **轨迹的形态**：轨迹是 agent 与环境交互产生的完整序列，状态与动作交替出现：
 
-$$\tau = (s_0, a_0, s_1, a_1, s_2, a_2, \ldots, s_T, a_T)$$
+$$
+\tau = (s_0, a_0, s_1, a_1, s_2, a_2, \ldots, s_T, a_T)
+$$
 
 - `s_0`：环境给的初始状态
 - `a_0`：agent 在 s_0 下选的动作
@@ -202,7 +210,9 @@ $$\tau = (s_0, a_0, s_1, a_1, s_2, a_2, \ldots, s_T, a_T)$$
 
 **用链式法则展开**：对 `p(s_0, a_0, s_1, a_1, ...)` 用条件概率链式法则逐层写：
 
-$$p(\tau) = p(s_0)\cdot p(a_0|s_0)\cdot p(s_1|s_0,a_0)\cdot p(a_1|s_0,a_0,s_1)\cdot p(s_2|s_0,a_0,s_1,a_1)\cdots$$
+$$
+p(\tau) = p(s_0)\cdot p(a_0|s_0)\cdot p(s_1|s_0,a_0)\cdot p(a_1|s_0,a_0,s_1)\cdot p(s_2|s_0,a_0,s_1,a_1)\cdots
+$$
 
 逐项简化：
 
@@ -214,17 +224,23 @@ $$p(\tau) = p(s_0)\cdot p(a_0|s_0)\cdot p(s_1|s_0,a_0)\cdot p(a_1|s_0,a_0,s_1)\c
 
 **关键：马尔可夫性把所有冗长的历史条件砍掉了**。每对 `(s_t, a_t)` 只贡献两个因子：
 
-$$\underbrace{\pi_\theta(a_t|s_t)}_{\text{agent 子环节}}\cdot\underbrace{P(s_{t+1}|s_t,a_t)}_{\text{environment 子环节}}$$
+$$
+\underbrace{\pi_\theta(a_t|s_t)}_{\text{agent}}\cdot\underbrace{P(s_{t+1}|s_t,a_t)}_{\text{environment}}
+$$
 
 于是整条轨迹的概率就是把它们连乘起来，再乘上初始分布：
 
-$$p_\theta(\tau) = p(s_0)\cdot\prod_{t=0}^{T}\big[\pi_\theta(a_t|s_t)\cdot P(s_{t+1}|s_t,a_t)\big]$$
+$$
+p_\theta(\tau) = p(s_0)\cdot\prod_{t=0}^{T}\big[\pi_\theta(a_t|s_t)\cdot P(s_{t+1}|s_t,a_t)\big]
+$$
 
 **几个细节**：
 
 1. **连乘上界 T 还是 T-1**：取决于轨迹是否在终止状态 `s_T` 结束。最干净的写法是拆开——"所有动作的策略概率"连乘 `T+1` 次、"所有转移的概率"连乘 `T` 次（最后一步没有"下一个状态"）：
 
-   $$p_\theta(\tau) = p(s_0)\cdot\prod_{t=0}^{T}\pi_\theta(a_t|s_t)\cdot\prod_{t=0}^{T-1}P(s_{t+1}|s_t,a_t)$$
+   $$
+   p_\theta(\tau) = p(s_0)\cdot\prod_{t=0}^{T}\pi_\theta(a_t|s_t)\cdot\prod_{t=0}^{T-1}P(s_{t+1}|s_t,a_t)
+   $$
 
 2. **环境项 P 与 θ 无关**：θ 是 agent（策略）的参数；环境是"客观世界"，`P` 是固定的物理规律（棋类规则、物理仿真器方程、API 响应分布），不随 agent 训练而变。
 3. **初始分布 p(s_0) 也与 θ 无关**：由任务设定决定，所以 `∇ log p(s_0) = 0`。
@@ -233,11 +249,15 @@ $$p_\theta(\tau) = p(s_0)\cdot\prod_{t=0}^{T}\big[\pi_\theta(a_t|s_t)\cdot P(s_{
 
 **为什么这个公式关键**：策略梯度推导的"破局一步"是对 `log p_θ(τ)` 求梯度。把它写成：
 
-$$\log p_\theta(\tau) = \underbrace{\log p(s_0)}_{\text{与 θ 无关，求导=0}} + \underbrace{\sum_t\log\pi_\theta(a_t|s_t)}_{\text{依赖 θ}} + \underbrace{\sum_t\log P(s_{t+1}|s_t,a_t)}_{\text{与 θ 无关，求导=0}}$$
+$$
+\log p_\theta(\tau) = \underbrace{\log p(s_0)}_{\text{indep. of }\theta,\ \nabla=0} + \underbrace{\sum_t\log\pi_\theta(a_t|s_t)}_{\text{depends on }\theta} + \underbrace{\sum_t\log P(s_{t+1}|s_t,a_t)}_{\text{indep. of }\theta,\ \nabla=0}
+$$
 
 所以：
 
-$$\nabla_\theta\log p_\theta(\tau) = \sum_t\nabla_\theta\log\pi_\theta(a_t|s_t)$$
+$$
+\nabla_\theta\log p_\theta(\tau) = \sum_t\nabla_\theta\log\pi_\theta(a_t|s_t)
+$$
 
 **两项与 θ 无关的因子（`p(s_0)` 和 `P`）直接消失**，只剩策略项的累加——这就是策略梯度定理"不需要环境模型"的根源，也是 model-free RL 的理论基石。
 
@@ -245,7 +265,9 @@ $$\nabla_\theta\log p_\theta(\tau) = \sum_t\nabla_\theta\log\pi_\theta(a_t|s_t)$
 
 由上，$\nabla_\theta\log p_\theta(\tau) = \sum_t\nabla_\theta\log\pi_\theta(a_t|s_t)$。代入 log-derivative trick `∇p = p·∇log p`，得策略梯度定理：
 
-$$\nabla J(\theta) = \mathbb{E}_{\tau\sim\pi_\theta}\!\left[\sum_t \nabla_\theta\log\pi_\theta(a_t|s_t)\cdot\Psi_t\right]$$
+$$
+\nabla J(\theta) = \mathbb{E}_{\tau\sim\pi_\theta}\!\left[\sum_t \nabla_\theta\log\pi_\theta(a_t|s_t)\cdot\Psi_t\right]
+$$
 
 其中 `Ψ_t` 是"这个动作有多好"的度量，可以有多种选择：
 
@@ -278,11 +300,7 @@ $$\nabla J(\theta) = \mathbb{E}_{\tau\sim\pi_\theta}\!\left[\sum_t \nabla_\theta
 
 梯度上升时：`Ψ_t > 0`（好动作）→ θ 朝增大 `logπ(a_t|s_t)` 的方向走 → 该动作概率被推高；`Ψ_t < 0`（坏动作）→ θ 反向走 → 概率被压低。这就是"`∇log π` 是提高该 token 概率的方向，乘上 `Ψ_t`（正=好，负=坏）后把好动作推高、坏动作推低"的完整含义。
 
-**为什么是 `log π` 而不是 `π`？** 因为 $
-abla\log\pi = 
-abla\pi / \pi$ 自动做了**重要性权重归一**——概率本就越小的动作，它的 `∇π` 也会小，除以 `π` 后能“公平”地获得梯度信号。这本质上是 **likelihood ratio / score function 估计**：$
-abla\mathbb{E}_p[f] = \mathbb{E}_p[f\cdot
-abla\log p]$，策略梯度定理只是把它套到 $p = p_\theta(\tau)$、$f = R(\tau)$ 的特例。
+**为什么是 `log π` 而不是 `π`？** 因为 $\nabla\log\pi = \nabla\pi / \pi$ 自动做了**重要性权重归一化**——概率本就越小的动作，它的 `∇π` 也会小，除以 `π` 后能“公平”地获得梯度信号。这本质上是 **likelihood ratio / score function 估计**：$\nabla\mathbb{E}_p[f] = \mathbb{E}_p[f\cdot\nabla\log p]$，策略梯度定理只是把它套到 $p = p_\theta(\tau)$、$f = R(\tau)$ 的特例。
 
 ### 2.3 REINFORCE 与 baseline
 
@@ -290,11 +308,15 @@ abla\log p]$，策略梯度定理只是把它套到 $p = p_\theta(\tau)$、$f = 
 
 朴素 REINFORCE 用蒙特卡洛回报：
 
-$$\nabla J(\theta) \approx \frac{1}{N}\sum_i\sum_t \nabla\log\pi_\theta(a_t|s_t)\cdot R(\tau_i)$$
+$$
+\nabla J(\theta) \approx \frac{1}{N}\sum_i\sum_t \nabla\log\pi_\theta(a_t|s_t)\cdot R(\tau_i)
+$$
 
 问题：`R(τ)` 数值大且波动大，梯度方差高。改进是减去一个 baseline `b(s_t)`：
 
-$$\nabla J(\theta) \approx \mathbb{E}\!\left[\sum_t \nabla\log\pi_\theta(a_t|s_t)\cdot (R - b)\right]$$
+$$
+\nabla J(\theta) \approx \mathbb{E}\!\left[\sum_t \nabla\log\pi_\theta(a_t|s_t)\cdot (R - b)\right]
+$$
 
 只要 `b` 不依赖当前动作 `a_t`，减去它**不改变梯度的期望**（无偏），但能显著降低方差。`(R - b)` 本质上就是优势 `A` 的估计。
 
@@ -308,21 +330,29 @@ $$\nabla J(\theta) \approx \mathbb{E}\!\left[\sum_t \nabla\log\pi_\theta(a_t|s_t
 
 **修正**：用重要性采样比率修正分布差异：
 
-$$\rho(\tau) = \frac{\pi_\theta(\tau)}{\pi_{\mathrm{old}}(\tau)}$$
+$$
+\rho(\tau) = \frac{\pi_\theta(\tau)}{\pi_{\mathrm{old}}(\tau)}
+$$
 
 代入后，旧策略分布下的期望等于新策略分布下的期望：
 
-$$\mathbb{E}_{\tau\sim\pi_{\mathrm{old}}}\!\left[\rho(\tau)\cdot f(\tau)\right] = \mathbb{E}_{\tau\sim\pi_\theta}\!\left[f(\tau)\right]$$
+$$
+\mathbb{E}_{\tau\sim\pi_{\mathrm{old}}}\!\left[\rho(\tau)\cdot f(\tau)\right] = \mathbb{E}_{\tau\sim\pi_\theta}\!\left[f(\tau)\right]
+$$
 
 **比率的展开**：把 `p_θ(τ)` 的分解代入，环境项 `P` 与 θ 无关，在 `π_θ` 和 `π_old` 中完全相同，相除后抵消，只剩策略项：
 
-$$\rho(\tau) = \prod_t \frac{\pi_\theta(a_t|s_t)}{\pi_{\mathrm{old}}(a_t|s_t)}$$
+$$
+\rho(\tau) = \prod_t \frac{\pi_\theta(a_t|s_t)}{\pi_{\mathrm{old}}(a_t|s_t)}
+$$
 
 即"各 token 重要性比率的连乘"——环境模型再次消失，这是 model-free 的另一体现。
 
 **token 级比率**：实践中常直接用每个 token 的比率（PPO/GRPO 的做法）：
 
-$$r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\mathrm{old}}(a_t|s_t)}$$
+$$
+r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\mathrm{old}}(a_t|s_t)}
+$$
 
 **比率偏离 1 越远，说明新旧策略差异越大**，越需要约束——这正是 PPO 裁剪（clip）、KL 惩罚、dual-clip 等技巧的动机（详见第八章）。但它们仍活在策略梯度定理的框架内，只是把"用旧样本评估新策略"这件事做稳。
 
@@ -353,7 +383,9 @@ PPO 用 **GAE（Generalized Advantage Estimation）** 估计优势。下面从 R
 
 回顾策略梯度定理 `∇J = E[Σ_t ∇log π · Ψ_t]`，REINFORCE 选 `Ψ_t = G_t`（reward-to-go，从 t 时刻起的回报）：
 
-$$G_t = \sum_{l=0}^{\infty}\gamma^l\cdot r_{t+l}$$
+$$
+G_t = \sum_{l=0}^{\infty}\gamma^l\cdot r_{t+l}
+$$
 
 `G_t` 是真实累积回报，无偏但高方差。问题：能否用价值函数 `V` 降方差？
 
@@ -361,11 +393,15 @@ $$G_t = \sum_{l=0}^{\infty}\gamma^l\cdot r_{t+l}$$
 
 由优势定义 `A(s,a) = Q(s,a) - V(s)` 和 Bellman 方程 $Q(s_t,a_t) = \mathbb{E}[r_t + \gamma\cdot V(s_{t+1})\mid s_t,a_t]$，得：
 
-$$A(s_t,a_t) = \mathbb{E}[r_t + \gamma\cdot V(s_{t+1})\mid s_t,a_t] - V(s_t)$$
+$$
+A(s_t,a_t) = \mathbb{E}[r_t + \gamma\cdot V(s_{t+1})\mid s_t,a_t] - V(s_t)
+$$
 
 用单次采样 `(r_t, s_{t+1})` 近似期望，得到 A 的一步估计：
 
-$$\hat A_t = r_t + \gamma\cdot V(s_{t+1}) - V(s_t) := \delta_t$$
+$$
+\hat A_t = r_t + \gamma\cdot V(s_{t+1}) - V(s_t) := \delta_t
+$$
 
 这就是 **TD 误差** `δ_t`。注意它**不是回报 R**，而是"即时奖励 `r_t` + 价值预测 `γ·V(s_{t+1})` − 价值预测 `V(s_t)`"。用真实 `V^π` 时 `E[δ_t | s,a] = A(s,a)`（无偏）；但实际用学的 `V̂ ≠ V^π`，所以 `δ_t` 有偏，偏差来自 critic 不准。
 
@@ -373,11 +409,15 @@ $$\hat A_t = r_t + \gamma\cdot V(s_{t+1}) - V(s_t) := \delta_t$$
 
 把 TD 误差累加 n 步：
 
-$$\hat A_t^{(n)} = \sum_{l=0}^{n-1}\gamma^l\cdot\delta_{t+l}$$
+$$
+\hat A_t^{(n)} = \sum_{l=0}^{n-1}\gamma^l\cdot\delta_{t+l}
+$$
 
 代入 `δ` 定义、递推抵消中间的 `V`，化简为：
 
-$$\hat A_t^{(n)} = \sum_{l=0}^{n-1}\gamma^l\cdot r_{t+l} + \gamma^n\cdot V(s_{t+n}) - V(s_t)$$
+$$
+\hat A_t^{(n)} = \sum_{l=0}^{n-1}\gamma^l\cdot r_{t+l} + \gamma^n\cdot V(s_{t+n}) - V(s_t)
+$$
 
 - `n=1`：`δ_t`（纯 TD，critic 用得多，偏差大方差小）
 - `n→∞`：`G_t - V(s_t)`（MC，critic 只在终点用一次，偏差小方差大；**此时才和回报 `G_t` 直接相关**）
@@ -386,11 +426,15 @@ $$\hat A_t^{(n)} = \sum_{l=0}^{n-1}\gamma^l\cdot r_{t+l} + \gamma^n\cdot V(s_{t+
 
 GAE 不固定 n，而是对所有 n-step 优势按 `(1-λ)λ^{n-1}` 加权求和（权重和为 1）：
 
-$$A_t^{\mathrm{GAE}} = \sum_{n=1}^{\infty}(1-\lambda)\cdot\lambda^{n-1}\cdot\hat A_t^{(n)}$$
+$$
+A_t^{\mathrm{GAE}} = \sum_{n=1}^{\infty}(1-\lambda)\cdot\lambda^{n-1}\cdot\hat A_t^{(n)}
+$$
 
 代入 `Â_t^{(n)} = Σ_{l=0}^{n-1} γ^l · δ_{t+l}` 并交换求和顺序，化简为简洁形式：
 
-$$A_t^{\mathrm{GAE}} = \sum_{l=0}^{\infty}(\gamma\lambda)^l\cdot\delta_{t+l}$$
+$$
+A_t^{\mathrm{GAE}} = \sum_{l=0}^{\infty}(\gamma\lambda)^l\cdot\delta_{t+l}
+$$
 
 **λ 的两个极端**（关键考点）：
 
@@ -411,7 +455,9 @@ $$A_t^{\mathrm{GAE}} = \sum_{l=0}^{\infty}(\gamma\lambda)^l\cdot\delta_{t+l}$$
 
 期望可以在另一个分布下估计，只要乘上密度比：
 
-$$\mathbb{E}_{x\sim p}[f(x)] = \sum_x p(x)f(x) = \sum_x q(x)\cdot\frac{p(x)}{q(x)}\cdot f(x) = \mathbb{E}_{x\sim q}\!\left[\frac{p(x)}{q(x)}f(x)\right]$$
+$$
+\mathbb{E}_{x\sim p}[f(x)] = \sum_x p(x)f(x) = \sum_x q(x)\cdot\frac{p(x)}{q(x)}\cdot f(x) = \mathbb{E}_{x\sim q}\!\left[\frac{p(x)}{q(x)}f(x)\right]
+$$
 
 唯一前提是**支撑覆盖**：`p(x) > 0` 的地方必须 `q(x) > 0`（旧策略必须"有可能"产出新策略会产出的样本）。温度 > 0 的 LLM 采样天然满足——任何 token 序列都有非零概率。2.3 节已把这条恒等式套用到轨迹分布（`p = p_θ(τ)`、`q = p_old(τ)`），并推导出环境项抵消后的 `ρ(τ) = ∏_t r_t`。
 
@@ -421,11 +467,15 @@ $$\mathbb{E}_{x\sim p}[f(x)] = \sum_x p(x)f(x) = \sum_x q(x)\cdot\frac{p(x)}{q(x
 
 数值直觉：假设新旧策略差异小到每个 token 的比率只有 1% 漂移（`r_t ≈ 1.01`），一条 4000 token 的轨迹（agentic 场景算短的）：
 
-$$\rho(\tau) = 1.01^{4000} \approx e^{40} \approx 10^{17}$$
+$$
+\rho(\tau) = 1.01^{4000} \approx e^{40} \approx 10^{17}
+$$
 
 更一般地，若各 token 比率近似独立、期望为 1、单个方差为 `σ²`，则轨迹比率的方差为：
 
-$$\mathrm{Var}\!\left(\prod_t r_t\right) = \prod_t \mathbb{E}[r_t^2] - 1 = (1+\sigma^2)^T - 1$$
+$$
+\mathrm{Var}\!\left(\prod_t r_t\right) = \prod_t \mathbb{E}[r_t^2] - 1 = (1+\sigma^2)^T - 1
+$$
 
 **随 T 指数增长**。batch 里只要混入一条这种"巨比率"轨迹，梯度就被它一家主导，其余样本全部失效。
 
@@ -494,7 +544,9 @@ clip 之后目标函数不再是真梯度的无偏估计——这是**故意**�
 1. **SFT（监督微调）**：用高质量示范数据得到初始策略 `π_SFT`，同时作为后续 KL 惩罚的参考策略 `π_ref`。
 2. **训练奖励模型（RM）**：收集人类对同一 prompt 多个回复的偏好排序，训练一个打分模型 `r_φ(x, y)`。典型损失是 Bradley-Terry 成对损失：
 
-   $$L_{\mathrm{RM}} = -\mathbb{E}\!\left[\log\sigma\!\left(r_\phi(x, y_{\mathrm{chosen}}) - r_\phi(x, y_{\mathrm{rejected}})\right)\right]$$
+   $$
+   L_{\mathrm{RM}} = -\mathbb{E}\!\left[\log\sigma\!\left(r_\phi(x, y_{\mathrm{chosen}}) - r_\phi(x, y_{\mathrm{rejected}})\right)\right]
+   $$
 3. **PPO 优化**：以 `r_φ` 的打分为奖励，用 PPO 更新策略，使其生成更受偏好的回复，同时用 KL 约束不要偏离 `π_ref` 太远。
 
 ### 3.2 PPO 的裁剪目标
@@ -503,11 +555,15 @@ clip 之后目标函数不再是真梯度的无偏估计——这是**故意**�
 
 由于用当前策略 `π_θ` 评估、却是用旧策略 `π_θ_old` 采的样，需要重要性采样比率来修正分布差异：
 
-$$r_t(\theta) = \frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)}$$
+$$
+r_t(\theta) = \frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)}
+$$
 
 PPO 的裁剪代理目标（clipped surrogate objective）：
 
-$$L^{\mathrm{CLIP}}(\theta) = \mathbb{E}_t\!\left[\min\!\left(r_t(\theta)\cdot A_t,\ \mathrm{clip}(r_t(\theta), 1-\varepsilon, 1+\varepsilon)\cdot A_t\right)\right]$$
+$$
+L^{\mathrm{CLIP}}(\theta) = \mathbb{E}_t\!\left[\min\!\left(r_t(\theta)\cdot A_t,\ \mathrm{clip}(r_t(\theta), 1-\varepsilon, 1+\varepsilon)\cdot A_t\right)\right]
+$$
 
 逐项理解：
 
@@ -534,7 +590,9 @@ slime/Dressage 用的是第二种（`--use-kl-loss` + `--kl-loss-coef`），KL �
 
 完整目标函数：
 
-$$L^{\mathrm{PPO}} = \mathbb{E}\!\left[L^{\mathrm{CLIP}}(\theta) - c_1\cdot L^{\mathrm{VF}}(\theta) + c_2\cdot H(\pi_\theta) - \beta\cdot\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})\right]$$
+$$
+L^{\mathrm{PPO}} = \mathbb{E}\!\left[L^{\mathrm{CLIP}}(\theta) - c_1\cdot L^{\mathrm{VF}}(\theta) + c_2\cdot H(\pi_\theta) - \beta\cdot\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})\right]
+$$
 
 - `L^VF = (V_ψ(s_t) - R_t)^2`：价值网络的回归损失
 - `H(π_θ)`：策略熵，鼓励探索（`c2` 即 `entropy-coef`）
@@ -633,7 +691,9 @@ def ppo_loss(
 
 流程：对每个 prompt `x`，用当前策略采样一组 `G` 个回复 `{y_1, ..., y_G}`（`G` 就是 `n-samples-per-prompt`），给每个回复打一个终点奖励 `r_i`。优势直接由组内统计得到：
 
-$$\hat A_i = \frac{r_i - \mathrm{mean}(r_1,\ldots,r_G)}{\mathrm{std}(r_1,\ldots,r_G)}$$
+$$
+\hat A_i = \frac{r_i - \mathrm{mean}(r_1,\ldots,r_G)}{\mathrm{std}(r_1,\ldots,r_G)}
+$$
 
 - **分子** `r_i - mean`：组内相对好坏——比同组平均好就是正优势，反之为负。这就是用组均值当 baseline。
 - **分母** `std`：可选的标准差归一化（Dressage 里由 `grpo_std_normalization` 控制），把不同 prompt 的奖励尺度拉齐。
@@ -644,7 +704,9 @@ $$\hat A_i = \frac{r_i - \mathrm{mean}(r_1,\ldots,r_G)}{\mathrm{std}(r_1,\ldots,
 
 **结论：GRPO 保留了 PPO 的"裁剪比率"和"KL 损失"，只是把 GAE 优势换成了组内相对优势。**
 
-$$L^{\mathrm{GRPO}}(\theta) = \mathbb{E}\!\left[\frac{1}{G}\sum_i\frac{1}{|y_i|}\sum_t\min\!\left(r_{i,t}(\theta)\cdot\hat A_i,\ \mathrm{clip}(r_{i,t}(\theta),1-\varepsilon,1+\varepsilon)\cdot\hat A_i\right)\right] - \beta\cdot\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})$$
+$$
+L^{\mathrm{GRPO}}(\theta) = \mathbb{E}\!\left[\frac{1}{G}\sum_i\frac{1}{|y_i|}\sum_t\min\!\left(r_{i,t}(\theta)\cdot\hat A_i,\ \mathrm{clip}(r_{i,t}(\theta),1-\varepsilon,1+\varepsilon)\cdot\hat A_i\right)\right] - \beta\cdot\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})
+$$
 
 其中 `r_{i,t}(θ) = π_θ(y_{i,t}|·) / π_θ_old(y_{i,t}|·)` 仍是 token 级重要性比率，`Â_i` 是该回复的组内优势。
 
@@ -667,11 +729,15 @@ $$L^{\mathrm{GRPO}}(\theta) = \mathbb{E}\!\left[\frac{1}{G}\sum_i\frac{1}{|y_i|}
 
 PPO：
 
-$$L^{\mathrm{PPO}} = \mathbb{E}_t\!\left[\min\!\left(r_t(\theta)\cdot A_t,\ \mathrm{clip}(r_t(\theta),1-\varepsilon,1+\varepsilon)\cdot A_t\right) - c_1 L^{\mathrm{VF}} + c_2 H(\pi_\theta)\right] - \beta\,\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})$$
+$$
+L^{\mathrm{PPO}} = \mathbb{E}_t\!\left[\min\!\left(r_t(\theta)\cdot A_t,\ \mathrm{clip}(r_t(\theta),1-\varepsilon,1+\varepsilon)\cdot A_t\right) - c_1 L^{\mathrm{VF}} + c_2 H(\pi_\theta)\right] - \beta\,\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})
+$$
 
 GRPO：
 
-$$L^{\mathrm{GRPO}}(\theta) = \mathbb{E}\!\left[\frac{1}{G}\sum_i\frac{1}{|y_i|}\sum_t\min\!\left(r_{i,t}(\theta)\cdot\hat A_i,\ \mathrm{clip}(r_{i,t}(\theta),1-\varepsilon,1+\varepsilon)\cdot\hat A_i\right)\right] - \beta\cdot\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})$$
+$$
+L^{\mathrm{GRPO}}(\theta) = \mathbb{E}\!\left[\frac{1}{G}\sum_i\frac{1}{|y_i|}\sum_t\min\!\left(r_{i,t}(\theta)\cdot\hat A_i,\ \mathrm{clip}(r_{i,t}(\theta),1-\varepsilon,1+\varepsilon)\cdot\hat A_i\right)\right] - \beta\cdot\mathrm{KL}(\pi_\theta\|\pi_{\mathrm{ref}})
+$$
 
 **逐项对照**：
 
@@ -814,11 +880,15 @@ PPO 和 GRPO 最核心区别：
 
 先回顾 **GRPO 的 token 级比率**（每个 token 一个，各自独立裁剪）：
 
-$$r_{i,t}(\theta) = \frac{\pi_\theta(y_{i,t}\mid\cdot)}{\pi_{\theta_{\mathrm{old}}}(y_{i,t}\mid\cdot)}$$
+$$
+r_{i,t}(\theta) = \frac{\pi_\theta(y_{i,t}\mid\cdot)}{\pi_{\theta_{\mathrm{old}}}(y_{i,t}\mid\cdot)}
+$$
 
 **GSPO 的做法**：改在**整条序列**上定义一个长度归一化的重要性比率（每条序列一个）：
 
-$$s_i(\theta) = \left(\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\mathrm{old}}}(y_i\mid x)}\right)^{1/|y_i|} = \exp\!\left(\frac{1}{|y_i|}\sum_t\log\frac{\pi_\theta(y_{i,t}\mid\cdot)}{\pi_{\theta_{\mathrm{old}}}(y_{i,t}\mid\cdot)}\right)$$
+$$
+s_i(\theta) = \left(\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\mathrm{old}}}(y_i\mid x)}\right)^{1/|y_i|} = \exp\!\left(\frac{1}{|y_i|}\sum_t\log\frac{\pi_\theta(y_{i,t}\mid\cdot)}{\pi_{\theta_{\mathrm{old}}}(y_{i,t}\mid\cdot)}\right)
+$$
 
 直观对比：GRPO 是“逐 token 算比率、逐 token 裁剪”——长序列里单 token 的比率异常会被裁剪放大；GSPO 是“整条序列算一个比率、整条序列裁剪一次”——把所有 token 的对数比率平均后取指数，抹平单 token 异常，长序列更稳。
 
@@ -845,7 +915,9 @@ $$s_i(\theta) = \left(\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\mathrm{old}}}(y
 
 **CISPO 的做法**（MiniMax-M1 论文 Eq. 4-5）：
 
-$$L^{\mathrm{CISPO}}(\theta) = -\mathbb{E}\!\left[\mathrm{sg}\!\left(\mathrm{clip}(r_t,\ 1-\varepsilon_{\mathrm{low}},\ 1+\varepsilon_{\mathrm{high}})\right)\cdot \hat A_t \cdot \log\pi_\theta(a_t\mid s_t)\right]$$
+$$
+L^{\mathrm{CISPO}}(\theta) = -\mathbb{E}\!\left[\mathrm{sg}\!\left(\mathrm{clip}(r_t,\ 1-\varepsilon_{\mathrm{low}},\ 1+\varepsilon_{\mathrm{high}})\right)\cdot \hat A_t \cdot \log\pi_\theta(a_t\mid s_t)\right]
+$$
 
 - `sg(·)` 是 stop-gradient：clip 后的比率只作为**固定权重**乘在前面，自身不产生梯度。
 - 梯度项是 `log π_θ`：无论比率是否被裁，每个 token 都照常获得"方向 ∇log π、幅度 = 截断权重 × 优势"的梯度。
@@ -879,7 +951,9 @@ slime 的实现见 [ppo_utils.py](../slime/slime/utils/ppo_utils.py) 的 `comput
 
 标准 PPO 上下用同一个 `ε`。DAPO 发现这会压制低概率 token 的概率增长，导致**熵坍缩**（模型越训越"死板"、丧失探索）。方案是解耦上下界：
 
-$$\min\!\left(r_t\cdot A_t,\ \mathrm{clip}(r_t, 1-\varepsilon_{\mathrm{low}}, 1+\varepsilon_{\mathrm{high}})\cdot A_t\right),\quad \varepsilon_{\mathrm{high}} > \varepsilon_{\mathrm{low}}$$
+$$
+\min\!\left(r_t\cdot A_t,\ \mathrm{clip}(r_t, 1-\varepsilon_{\mathrm{low}}, 1+\varepsilon_{\mathrm{high}})\cdot A_t\right),\quad \varepsilon_{\mathrm{high}} > \varepsilon_{\mathrm{low}}
+$$
 
 调高 `ε_high` 给低概率 token 更多上升空间，保持探索。这对应 Dressage 脚本里的：
 
@@ -912,7 +986,9 @@ GRPO 默认按"样本平均"聚合损失，长回复里每个 token 的权重被
 
 DPO 的核心洞见：RLHF 的最优策略与奖励之间存在闭式关系，反解出奖励可以用策略本身表示，从而把 RM 训练与 PPO 合并为一个损失：
 
-$$L^{\mathrm{DPO}} = -\mathbb{E}_{(x, y_w, y_l)}\!\left[\log\sigma\!\left(\beta\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)} - \beta\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}\right)\right]$$
+$$
+L^{\mathrm{DPO}} = -\mathbb{E}_{(x, y_w, y_l)}\!\left[\log\sigma\!\left(\beta\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)} - \beta\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}\right)\right]
+$$
 
 其中 `y_w` 是偏好回复（win），`y_l` 是较差回复（lose），`β` 控制与参考策略的偏离程度。
 
@@ -952,9 +1028,13 @@ DPO 之后出现了一批针对其短板改进的离线偏好优化算法，核�
 
 **作用**：修正"用旧策略采样、用新策略评估"的分布偏移，使得一批数据可以做多步梯度更新（提高样本效率）。
 
-$$\text{token 级（PPO/GRPO）:}\quad r_t(\theta) = \frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)}$$
+$$
+\text{token-level (PPO/GRPO):}\quad r_t(\theta) = \frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)}
+$$
 
-$$\text{序列级（GSPO）:}\quad s_i(\theta) = \left(\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\mathrm{old}}}(y_i\mid x)}\right)^{1/|y_i|}$$
+$$
+\text{sequence-level (GSPO):}\quad s_i(\theta) = \left(\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\mathrm{old}}}(y_i\mid x)}\right)^{1/|y_i|}
+$$
 
 比率偏离 1 越远，说明新旧策略差异越大，越需要裁剪来约束。
 
@@ -968,7 +1048,9 @@ $$\text{序列级（GSPO）:}\quad s_i(\theta) = \left(\frac{\pi_\theta(y_i\mid 
 - **Clip-Higher（DAPO）**：`clip(r, 1-ε_low, 1+ε_high)`，`ε_high>ε_low`，缓解熵坍缩（对应 `--eps-clip` 与 `--eps-clip-high`）。
 - **Dual-Clip**：当 `A_t<0` 时再加一层下界 `c·A_t`（`c>1`），即
 
-  $$L_t = \max\!\left(\min(r_t\cdot A_t,\ \mathrm{clip}(r_t,1-\varepsilon,1+\varepsilon)\cdot A_t),\ c\cdot A_t\right)$$
+  $$
+  L_t = \max\!\left(\min(r_t\cdot A_t,\ \mathrm{clip}(r_t,1-\varepsilon,1+\varepsilon)\cdot A_t),\ c\cdot A_t\right)
+  $$
 
   防止"负优势 + 大比率"产生极端大的破坏性梯度（对应 `--eps-clip-c`，示例中 `c=3.0`）。
 

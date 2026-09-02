@@ -395,9 +395,7 @@ KDA 把两个经典想法组合起来：
 
 
 $$
-S_t = \big( I - \beta_t k_t k_t^\top \big)\,\mathrm{Diag}(\alpha_t)\, S_{t-1} + \beta_t k_t v_t^\top,
-\qquad
-\tilde o_t = S_t^\top q_t .
+S_t = \big( I - \beta_t k_t k_t^\top \big)\,\mathrm{Diag}(\alpha_t)\, S_{t-1} + \beta_t k_t v_t^\top, \qquad \tilde o_t = S_t^\top q_t .
 $$
 
 
@@ -436,12 +434,7 @@ $$
 KDA 沿用 Kimi Linear 的参数化。给定隐藏状态 `xₜ`：
 
 $$
-\begin{aligned}
-q_t^h, k_t^h &= \mathrm{L2Norm}\big(\mathrm{Swish}(\mathrm{ShortConv}(W_{q/k}^h x_t))\big) \in \mathbb{R}^{d_k},\\
-v_t^h &= \mathrm{Swish}\big(\mathrm{ShortConv}(W_v^h x_t)\big) \in \mathbb{R}^{d_v},\\
-\beta_t^h &= \mathrm{Sigmoid}(W_\beta^h x_t) \in (0,1),\\
-z_t^h &= W_\alpha^{\uparrow} W_\alpha^{\downarrow} x_t + b_\alpha^h \in \mathbb{R}^{d_k}\quad(\text{衰减 logit，低秩}).
-\end{aligned}
+\begin{aligned} q_t^h, k_t^h &= \mathrm{L2Norm}\big(\mathrm{Swish}(\mathrm{ShortConv}(W_{q/k}^h x_t))\big) \in \mathbb{R}^{d_k},\\ v_t^h &= \mathrm{Swish}\big(\mathrm{ShortConv}(W_v^h x_t)\big) \in \mathbb{R}^{d_v},\\ \beta_t^h &= \mathrm{Sigmoid}(W_\beta^h x_t) \in (0,1),\\ z_t^h &= W_\alpha^{\uparrow} W_\alpha^{\downarrow} x_t + b_\alpha^h \in \mathbb{R}^{d_k}\quad(\text{衰减 logit，低秩}). \end{aligned}
 $$
 
 - **ShortConv（短卷积）**：一个**逐通道、因果**的 1D 卷积（窗口很小，如 4）。它让每个 token 在进入递推前先"瞄一眼"左边几个邻居——必要性见下面 §3.5。因果 = 左侧 padding，绝不看未来。
@@ -515,9 +508,7 @@ Kimi Linear 的旧做法用一个**无下界**的映射（negative-Softplus）�
 ### K3 的解法：用缩放 sigmoid 给 log 衰减一个下界
 
 $$
-g_t^h = g_{\min}\,\mathrm{Sigmoid}(e^{A_h} z_t^h) \in (g_{\min},\,0)^{d_k},
-\qquad
-\alpha_t^h = \exp(g_t^h) \in (e^{g_{\min}},\,1)^{d_k}.
+g_t^h = g_{\min}\,\mathrm{Sigmoid}(e^{A_h} z_t^h) \in (g_{\min},\,0)^{d_k}, \qquad \alpha_t^h = \exp(g_t^h) \in (e^{g_{\min}},\,1)^{d_k}.
 $$
 
 - `A_h`：**可学习的每头 log 尺度**，初始化为 0。
@@ -1091,9 +1082,7 @@ $$
 - **注意力权重**用一个带 RMSNorm 的 softmax 核：
 
 $$
-\phi(q,k) = \exp\big(q^\top \mathrm{RMSNorm}(k)\big),\qquad
-\alpha_{i\to l} = \frac{\phi(q_l, k_i)}{\sum_{j=0}^{l-1}\phi(q_l, k_j)},\qquad
-h_l = \sum_{i=0}^{l-1}\alpha_{i\to l}\, v_i .
+\phi(q,k) = \exp\big(q^\top \mathrm{RMSNorm}(k)\big),\qquad \alpha_{i\to l} = \frac{\phi(q_l, k_i)}{\sum_{j=0}^{l-1}\phi(q_l, k_j)},\qquad h_l = \sum_{i=0}^{l-1}\alpha_{i\to l}\, v_i .
 $$
 
 - 这里 `h_l` 是**第 `l` 层的输入**（用注意力从所有前面层里"挑"出的组合），不是简单累加；`q_l = w_l` 就是那个可学习伪查询。
@@ -1114,10 +1103,7 @@ Full 版的 `O(Ld)` 内存太贵。**Block AttnRes** 把 `L` 层分成 `N` 个�
 - **块间**：只在 `N` 个块级表示上做全注意力。对块 `n` 里的第 `i` 层：
 
 $$
-V = \begin{cases}
-[b_0, b_1, \dots, b_{n-1}]^\top & i = 1\ (\text{块内第一层})\\
-[b_0, b_1, \dots, b_{n-1}, b_n^{\,i-1}]^\top & i \ge 2\ (\text{后续层，额外看当前块的部分和})
-\end{cases}
+V = \begin{cases} [b_0, b_1, \dots, b_{n-1}]^\top & i = 1\ (\text{块内第一层})\\ [b_0, b_1, \dots, b_{n-1}, b_n^{\,i-1}]^\top & i \ge 2\ (\text{后续层，额外看当前块的部分和}) \end{cases}
 $$
 
 键与权重仍按 Eq. 8–9。最后的输出层聚合所有 `N` 个块表示。
@@ -1392,9 +1378,7 @@ K3 想把稀疏度推到极端：**896 个专家、每 token 激活 16 个（稀
 ### 公式（报告 Eq. 11）
 
 $$
-u = \sum_{i \in T_k(x)} p_i\, E^{\text{routed}}_i(W_\downarrow x),
-\qquad
-y = \sum_{j=1}^{N_s} E^{\text{shared}}_j(x) + W_\uparrow\,\mathrm{RMSNorm}(u).
+u = \sum_{i \in T_k(x)} p_i\, E^{\text{routed}}_i(W_\downarrow x), \qquad y = \sum_{j=1}^{N_s} E^{\text{shared}}_j(x) + W_\uparrow\,\mathrm{RMSNorm}(u).
 $$
 
 逐项解释：
@@ -1424,9 +1408,7 @@ K3 的改动：在**专家聚合之后、升维之前**插入一个 **RMSNorm**�
 ## 5. 路由器：sigmoid 打分 + 带偏置的 Top-k（报告 Eq. 13）
 
 $$
-s_i = \mathrm{Sigmoid}(W_r x_i),\qquad
-T_i = \mathrm{argtopk}(s_i + b),\qquad
-p_{i,j} = \frac{s_{i,j}}{\sum_{r\in T_i} s_{i,r}},\ j\in T_i .
+s_i = \mathrm{Sigmoid}(W_r x_i),\qquad T_i = \mathrm{argtopk}(s_i + b),\qquad p_{i,j} = \frac{s_{i,j}}{\sum_{r\in T_i} s_{i,r}},\ j\in T_i .
 $$
 
 三点关键：
@@ -3161,7 +3143,7 @@ K3 **不是**为每个具体任务训一个专门的 RL 模型，而是**在三�
 给定输入查询 `x`、前缀 `y_<t`，对下一个 token `y_t`，教师与学生之间的**逐 token OPD 奖励**定义为：
 
 $$
-r^d_{\text{opd}}(y_t \mid e, x, y_{<t}) = \mathrm{clip}\!\left( \mathrm{sg}\!\left( \log \frac{\pi^{(d,e)}_{\text{teacher}}(y_t \mid x, y_{<t})}{\pi_\theta(y_t \mid e, x, y_{<t})} \right),\ -R_{\max},\ R_{\max} \right)
+r^d_{\text{opd}}(y_t \mid e, x, y_{\lt t}) = \mathrm{clip}\!\left( \mathrm{sg}\!\left( \log \frac{\pi^{(d,e)}_{\text{teacher}}(y_t \mid x, y_{\lt t})}{\pi_\theta(y_t \mid e, x, y_{\lt t})} \right),\ -R_{\max},\ R_{\max} \right)
 $$
 
 **逐符号翻译**：
@@ -3891,7 +3873,9 @@ $$
 
 段内递归就是 Eq. 1，记 `w_t = β_t k_t v_tᵀ`，`S_0 = S_in`：
 
-$$S_t = M_t S_{t-1} + w_t$$
+$$
+S_t = M_t S_{t-1} + w_t
+$$
 
 一层层代进去硬展开：
 
@@ -3951,7 +3935,9 @@ $$
 **Step 3 · 前缀扫描，恢复真正的进入状态**
 rank `i+1` 从 `S=0` 出发，按顺序把**同一文档内**排在它前面的所有片段依次套上去：
 
-$$S \leftarrow M_{[j]}S + \tilde S_{[j]},\quad j=1,\dots,i$$
+$$
+S \leftarrow M_{[j]}S + \tilde S_{[j]},\quad j=1,\dots,i
+$$
 
 得到的就是精确的 `S^{T_i}_{[i]}` = 自己的 `S_in`。
 （注意"同一文档"：packed 训练里跨文档要 reset，属于别的文档的片段不参与扫描。）
@@ -5072,8 +5058,7 @@ $$
 **"最大分数均衡分配"**——即每个专家恰好服务 `mk/n` 个 token（假设可整除）——是：
 
 $$
-\max_{x_{i,j}\in\{0,1\}} \sum_{i,j} x_{i,j} s_{i,j}
-\quad \text{s.t.} \quad \sum_j x_{i,j} = k, \quad \sum_i x_{i,j} = \frac{mk}{n}
+\max_{x_{i,j}\in\{0,1\}} \sum_{i,j} x_{i,j} s_{i,j} \quad \text{s.t.} \quad \sum_j x_{i,j} = k, \quad \sum_i x_{i,j} = \frac{mk}{n}
 $$
 
 **读法**：在"每个 token 选 k 个专家"和"每个专家收 `mk/n` 个 token"两个约束下，**最大化总路由分数**。

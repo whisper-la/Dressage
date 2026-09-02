@@ -75,7 +75,7 @@ Agent ──/v1/chat/completions──▶ Proxy（server.py）
 
 ## 2. 问题背景：为什么长轨迹 Agent 拼不成一条 token 序列
 
-**本章结论先行：Agent 的每次 LLM 调用都要把 messages 重新渲染成 token；一旦 Agent 压缩历史、回退重试或更换工具，新渲染结果与旧 token 序列的前缀关系就断了。而 logprob 是以前缀为条件的量 $\log\pi(y_t \mid y_{<t})$，前缀一断，其后所有 token 的训练信号在定义上失效——所以必须在断点处切开。切错方向的代价极不对称（错拼静默污染梯度、多切几乎无害），因此切段一律 fail closed。**
+**本章结论先行：Agent 的每次 LLM 调用都要把 messages 重新渲染成 token；一旦 Agent 压缩历史、回退重试或更换工具，新渲染结果与旧 token 序列的前缀关系就断了。而 logprob 是以前缀为条件的量 $\log\pi(y_t \mid y_{\lt t})$，前缀一断，其后所有 token 的训练信号在定义上失效——所以必须在断点处切开。切错方向的代价极不对称（错拼静默污染梯度、多切几乎无害），因此切段一律 fail closed。**
 
 ### 2.1 从 messages 到 tokens：渲染管线为什么天然脆弱
 
@@ -92,13 +92,17 @@ messages ──chat template──▶ 渲染文本 ──tokenizer──▶ toke
 
 但比渲染更根本的是 **logprob 的语义**。训练需要的是每个 response token 的条件对数概率：
 
-$$\log\pi_\theta(y_t \mid y_{<t})$$
+$$
+\log\pi_\theta(y_t \mid y_{\lt t})
+$$
 
 它**以前缀为条件**。前缀任何一个 token 变了，之后所有 token 的 logprob 在定义上就不是同一个量——不是数值差一点，而是语义失效。
 
 PPO/GRPO 的 loss 又逐 token 计算重要性采样比率（见 [llm-rl-algorithms-zh.md](llm-rl-algorithms-zh.md) 8.1 节）：
 
-$$r_t(\theta) = \frac{\pi_\theta(y_t \mid y_{<t})}{\pi_{\theta_{old}}(y_t \mid y_{<t})}$$
+$$
+r_t(\theta) = \frac{\pi_\theta(y_t \mid y_{\lt t})}{\pi_{\theta_{old}}(y_t \mid y_{\lt t})}
+$$
 
 这要求 rollout 记录的 $\pi_{old}$ 与训练时前向的 $\pi_\theta$ **逐 token 一一对应**。错位一个 token，其后所有 $r_t$ 全部失真——而且这种错误不会抛任何异常，只会静默污染梯度。
 
@@ -731,7 +735,9 @@ for i, segment in enumerate(sorted_segments):
 
 slime 训练侧的 loss 归约函数是 [cp_utils.py](../slime/slime/backends/megatron_utils/cp_utils.py) 的 `sum_of_sample_mean`（第 73-81 行）：
 
-$$L = \sum_{i \in \text{batch}} \frac{\sum_{t} x_{i,t} \cdot m_{i,t}}{\mathrm{denom}_i}$$
+$$
+L = \sum_{i \in \text{batch}} \frac{\sum_{t} x_{i,t} \cdot m_{i,t}}{\mathrm{denom}_i}
+$$
 
 其中 $x_{i,t}$ 是样本 $i$ 第 $t$ 个 token 的 loss 贡献，$m_{i,t}$ 是 loss_mask。**$\mathrm{denom}_i$ 就是权重控制的阀门**。
 
@@ -762,11 +768,15 @@ $\mathrm{denom}_i$ 来自 rollout 侧预计算的 `train_data["rollout_mask_sums
 
 `_prompt_equal_rollout_mask_sums()`（convert_samples.py 第 26-82 行）为每个 sample 给出：
 
-$$\mathrm{denom}_i = M_P \times \frac{N_P}{\mathrm{gbs}}$$
+$$
+\mathrm{denom}_i = M_P \times \frac{N_P}{\mathrm{gbs}}
+$$
 
 验证 prompt $P$ 的总贡献（$x=1$ 探针，对该 prompt 所有 live sample 求和）：
 
-$$\sum_{T \in P}\sum_{s \in T} \frac{m_s}{M_P \cdot N_P/\mathrm{gbs}} = \frac{M_P \cdot \mathrm{gbs}}{M_P \cdot N_P} = \frac{\mathrm{gbs}}{N_P}$$
+$$
+\sum_{T \in P}\sum_{s \in T} \frac{m_s}{M_P \cdot N_P/\mathrm{gbs}} = \frac{M_P \cdot \mathrm{gbs}}{M_P \cdot N_P} = \frac{\mathrm{gbs}}{N_P}
+$$
 
 **每个 prompt 在 loss 中的总权重恒为 $\mathrm{gbs}/N_P$**，与它被切成几段、有几条有效轨迹、长度多少全部无关。三个公平性推论：
 

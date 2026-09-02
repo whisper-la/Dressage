@@ -129,11 +129,11 @@ GRPO 的核心创新在于优势函数的计算方式：
 
 GRPO 优势计算公式：
 
-\[
+$$
 A_i = r_i - \frac{1}{N}\sum_{j=1}^{N} r_j
-\]
+$$
 
-其中 \(r_i\) 是第 i 个回复的奖励，N 是组内采样数。
+其中 $r_i$ 是第 i 个回复的奖励，N 是组内采样数。
 
 在 Dressage 中，GRPO 通过 slime 框架实现。slime 支持 `--advantage-estimator grpo` 标志来启用 GRPO 算法。Dressage 的 [reward_post_process](../dressage/training/reward_post_process.py) 负责执行组内归一化计算。
 

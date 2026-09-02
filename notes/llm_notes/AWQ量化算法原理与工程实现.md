@@ -134,10 +134,7 @@ $$
 也可以写成：
 
 $$
-\Delta_g
-=\frac{M_g-(-M_g)}{7-(-7)}
-=\frac{2M_g}{14}
-=\frac{M_g}{7}
+\Delta_g =\frac{M_g-(-M_g)}{7-(-7)} =\frac{2M_g}{14} =\frac{M_g}{7}
 $$
 
 所以“最大绝对值除以 7”和“对称最大值减最小值后除以 14”完全等价。
@@ -145,11 +142,7 @@ $$
 量化公式：
 
 $$
-q=\operatorname{clip}
-\left(
-\operatorname{round}\left(\frac{W_g}{\Delta_g}\right),
--7,7
-\right)
+q=\operatorname{clip} \left( \operatorname{round}\left(\frac{W_g}{\Delta_g}\right), -7,7 \right)
 $$
 
 反量化公式：
@@ -177,18 +170,13 @@ $$
 零点：
 
 $$
-z_g=\operatorname{round}
-\left(-\frac{W_{\min,g}}{\Delta_g}\right)
+z_g=\operatorname{round} \left(-\frac{W_{\min,g}}{\Delta_g}\right)
 $$
 
 量化与反量化：
 
 $$
-q=\operatorname{clip}
-\left(
-\operatorname{round}(W_g/\Delta_g)+z_g,
-0,15
-\right)
+q=\operatorname{clip} \left( \operatorname{round}(W_g/\Delta_g)+z_g, 0,15 \right)
 $$
 
 $$
@@ -245,9 +233,7 @@ $$
 因此输出误差为：
 
 $$
-\Delta y_i
-=\hat y_i-y_i
-=\sum_j x_j(\hat w_{i,j}-w_{i,j})
+\Delta y_i =\hat y_i-y_i =\sum_j x_j(\hat w_{i,j}-w_{i,j})
 $$
 
 令权重量化误差：
@@ -327,9 +313,7 @@ $$
 因此有效权重误差上界为：
 
 $$
-|\hat w_j-w_j|
-\leq
-\frac{\Delta_s}{2s_j}
+|\hat w_j-w_j| \leq \frac{\Delta_s}{2s_j}
 $$
 
 在暂时假设 $\Delta_s$ 不变的情况下，$s_j$ 越大，该通道对应权重的有效量化误差越小。
@@ -337,9 +321,7 @@ $$
 第 $j$ 个通道造成的输出误差上界为：
 
 $$
-|\Delta y_j|
-\lesssim
-|x_j|\frac{\Delta_s}{2s_j}
+|\Delta y_j| \lesssim |x_j|\frac{\Delta_s}{2s_j}
 $$
 
 若令：
@@ -351,9 +333,7 @@ $$
 则：
 
 $$
-|\Delta y_j|
-\lesssim
-\frac{\Delta_s}{2}|x_j|^{1-\alpha}
+|\Delta y_j| \lesssim \frac{\Delta_s}{2}|x_j|^{1-\alpha}
 $$
 
 当 $\alpha=0$ 时，没有缩放，误差影响近似随 $|x_j|$ 线性增长；当 $0<\alpha<1$ 时，高激活通道对误差的放大被部分抵消。
@@ -420,9 +400,7 @@ $$
 注意：$\alpha$ 不是 scale 本身。一个候选 $\alpha$ 会生成一整条 scale 向量：
 
 $$
-\alpha
-\longrightarrow
-s(\alpha)=[x_0^\alpha,x_1^\alpha,\ldots,x_{C-1}^\alpha]
+\alpha \longrightarrow s(\alpha)=[x_0^\alpha,x_1^\alpha,\ldots,x_{C-1}^\alpha]
 $$
 
 ### 6.3 AutoAWQ 的 duo scaling
@@ -430,8 +408,7 @@ $$
 AutoAWQ 的 `duo_scaling` 还会考虑权重幅值。其实现先在量化 group 内归一化权重：
 
 $$
-\bar W=
-\frac{|W|}{\max_{\text{group}}|W|+\epsilon}
+\bar W= \frac{|W|}{\max_{\text{group}}|W|+\epsilon}
 $$
 
 再沿输出通道计算每个输入通道的平均归一化权重幅值：
@@ -443,9 +420,7 @@ $$
 候选 scale 近似为：
 
 $$
-s_j(\alpha)
-=
-\frac{x_j^\alpha}{w_j^{1-\alpha}+\epsilon}
+s_j(\alpha) = \frac{x_j^\alpha}{w_j^{1-\alpha}+\epsilon}
 $$
 
 如果关闭 `duo_scaling`，则退化为：
@@ -457,8 +432,7 @@ $$
 AutoAWQ 随后会归一化候选 scale：
 
 $$
-s\leftarrow
-\frac{s}{\sqrt{\max(s)\min(s)}}
+s\leftarrow \frac{s}{\sqrt{\max(s)\min(s)}}
 $$
 
 该操作保留各通道 scale 的相对比例，同时避免所有数值整体过大或过小。
@@ -489,12 +463,7 @@ $$
 目标函数为：
 
 $$
-\alpha^*
-=
-\arg\min_\alpha
-\left\|
-XW^T-(X/s_\alpha)Q(Ws_\alpha)^T
-\right\|_2^2
+\alpha^* = \arg\min_\alpha \left\| XW^T-(X/s_\alpha)Q(Ws_\alpha)^T \right\|_2^2
 $$
 
 AutoAWQ 实现中常使用融合后的等价形式：
@@ -557,10 +526,7 @@ AutoAWQ 的实际搜索逻辑可参考其归档源码中的 [`quantizer.py`](htt
 权重：
 
 $$
-W=
-\begin{bmatrix}
-1 & 0.5 & 0.25 & 0.125 & 0.0625
-\end{bmatrix}
+W= \begin{bmatrix} 1 & 0.5 & 0.25 & 0.125 & 0.0625 \end{bmatrix}
 $$
 
 形状：
@@ -572,9 +538,7 @@ W.shape = [1, 5]
 假设校准统计得到的通道激活绝对值均值为：
 
 $$
-x_{\text{mean}}
-=
-[0.0625,0.25,1,4,16]
+x_{\text{mean}} = [0.0625,0.25,1,4,16]
 $$
 
 为了便于展示，取一个与该统计相同的代表性输入：
@@ -638,12 +602,7 @@ $$
 量化输出：
 
 $$
-\hat Y
-=0.0625\times1
-+0.25\times0.5714
-+1\times0.2857
-+4\times0.1429
-+16\times0
+\hat Y =0.0625\times1 +0.25\times0.5714 +1\times0.2857 +4\times0.1429 +16\times0
 $$
 
 $$
@@ -691,8 +650,7 @@ $$
 则：
 
 $$
-s=
-[\sqrt{0.0625},\sqrt{0.25},\sqrt1,\sqrt4,\sqrt{16}]
+s= [\sqrt{0.0625},\sqrt{0.25},\sqrt1,\sqrt4,\sqrt{16}]
 $$
 
 $$
@@ -764,12 +722,7 @@ $$
 验证浮点等价性：
 
 $$
-X'W'^T
-=0.25\times0.25
-+0.5\times0.25
-+1\times0.25
-+2\times0.25
-+4\times0.25
+X'W'^T =0.25\times0.25 +0.5\times0.25 +1\times0.25 +2\times0.25 +4\times0.25
 $$
 
 $$
@@ -1339,14 +1292,7 @@ def search_awq_scale(
 AWQ 的核心可以浓缩为以下公式：
 
 $$
-\boxed{
-s^*
-=
-\arg\min_s
-\left\|
-XW^T-(X/s)Q(Ws)^T
-\right\|_2^2
-}
+\boxed{ s^* = \arg\min_s \left\| XW^T-(X/s)Q(Ws)^T \right\|_2^2 }
 $$
 
 其本质是：

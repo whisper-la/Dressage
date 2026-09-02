@@ -34,7 +34,9 @@ OPD（On-Policy Distillation）的核心思想：student 模型在自己的 roll
 
 对 student 采样的轨迹 ŷ 中的每个 token 位置 t：
 
-$$\hat{A}_t = A_t - \lambda_{\text{opd}} \cdot \left( \log \pi_S(y_t \mid x, \hat{y}_{<t}) - \log \pi_T(y_t \mid x, \hat{y}_{<t}) \right)$$
+$$
+\hat{A}_t = A_t - \lambda_{\text{opd}} \cdot \left( \log \pi_S(y_t \mid x, \hat{y}_{\lt t}) - \log \pi_T(y_t \mid x, \hat{y}_{\lt t}) \right)
+$$
 
 其中：
 
@@ -71,7 +73,9 @@ MOPD 将单 teacher OPD 扩展为多 teacher：不同的训练样本可以路由
 
 对路由到 teacher τ(i) 的样本 i 的 token 位置 t：
 
-$$\hat{A}_{i,t} = A_{i,t} - \lambda_{\text{opd}} \cdot \left( \log \pi_S(y_{i,t} \mid x_i, \hat{y}_{i,<t}) - \log \pi_{T_{\tau(i)}}(y_{i,t} \mid x_i, \hat{y}_{i,<t}) \right)$$
+$$
+\hat{A}_{i,t} = A_{i,t} - \lambda_{\text{opd}} \cdot \left( \log \pi_S(y_{i,t} \mid x_i, \hat{y}_{i,<t}) - \log \pi_{T_{\tau(i)}}(y_{i,t} \mid x_i, \hat{y}_{i,<t}) \right)
+$$
 
 与单 teacher OPD 的唯一区别：teacher 的 log-prob由样本路由到的 $\pi_{T_{\tau(i)}}$ 计算，而非全局唯一的 $\pi_T$。后续的 advantage 计算、policy loss、backward、optimizer step 完全不变——Slime 只看到 `rollout_data["teacher_log_probs"]` 这个列表，不关心它来自哪个 teacher。
 
