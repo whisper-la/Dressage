@@ -92,7 +92,7 @@ $$
 **推理时的逐 token 形式**：
 
 $$
-\mathbf{o}_t = \sum_{j=1}^{t} \underbrace{\frac{\exp(\mathbf{q}_t^\top \mathbf{k}_j)}{\sum_{l=1}^{t} \exp(\mathbf{q}_t^\top \mathbf{k}_l)}}_{\text{注意力权重 } a_{t,j}} \mathbf{v}_j
+\mathbf{o}_t = \sum_{j=1}^{t} \underbrace{\frac{\exp(\mathbf{q}_t^\top \mathbf{k}_j)}{\sum_{l=1}^{t} \exp(\mathbf{q}_t^\top \mathbf{k}_l)}}_{\text{attn weight } a_{t,j}} \mathbf{v}_j
 $$
 
 ### 1.3 为什么 softmax 带来精确检索
@@ -162,13 +162,13 @@ $$
 **分子**可以用结合律重排（与 softmax 不同，因为这里没有指数函数）：
 
 $$
-\text{分子} = \sum_{j=1}^{t} \mathbf{v}_j \left(\phi(\mathbf{k}_j)^\top \phi(\mathbf{q}_t)\right) = \left(\sum_{j=1}^{t} \mathbf{v}_j \phi(\mathbf{k}_j)^\top\right) \phi(\mathbf{q}_t) = \mathbf{S}_t \phi(\mathbf{q}_t)
+\text{numerator} = \sum_{j=1}^{t} \mathbf{v}_j \left(\phi(\mathbf{k}_j)^\top \phi(\mathbf{q}_t)\right) = \left(\sum_{j=1}^{t} \mathbf{v}_j \phi(\mathbf{k}_j)^\top\right) \phi(\mathbf{q}_t) = \mathbf{S}_t \phi(\mathbf{q}_t)
 $$
 
 **分母**同样可以重排：
 
 $$
-\text{分母} = \phi(\mathbf{q}_t)^\top \sum_{j=1}^{t} \phi(\mathbf{k}_j) = \phi(\mathbf{q}_t)^\top \mathbf{z}_t
+\text{denominator} = \phi(\mathbf{q}_t)^\top \sum_{j=1}^{t} \phi(\mathbf{k}_j) = \phi(\mathbf{q}_t)^\top \mathbf{z}_t
 $$
 
 因此原始 Linear Attention 的 RNN 形式为：
@@ -274,7 +274,7 @@ $$
 **详细推导**：假设所有 key 已归一化为单位长度 $\|\mathbf{k}_j\| = 1$。当用 $\mathbf{k}_j$ 查询记忆时：
 
 $$
-\mathbf{S}\mathbf{k}_j = \left(\sum_i \mathbf{v}_i \mathbf{k}_i^\top\right) \mathbf{k}_j = \sum_i \mathbf{v}_i (\mathbf{k}_i^\top \mathbf{k}_j) = \mathbf{v}_j \cdot \underbrace{1}_{\mathbf{k}_j^\top \mathbf{k}_j} + \sum_{i \neq j} \mathbf{v}_i \underbrace{(\mathbf{k}_i^\top \mathbf{k}_j)}_{\text{交叉项}}
+\mathbf{S}\mathbf{k}_j = \left(\sum_i \mathbf{v}_i \mathbf{k}_i^\top\right) \mathbf{k}_j = \sum_i \mathbf{v}_i (\mathbf{k}_i^\top \mathbf{k}_j) = \mathbf{v}_j \cdot \underbrace{1}_{\mathbf{k}_j^\top \mathbf{k}_j} + \sum_{i \neq j} \mathbf{v}_i \underbrace{(\mathbf{k}_i^\top \mathbf{k}_j)}_{\text{cross term}}
 $$
 
 理想情况下，$\mathbf{S}\mathbf{k}_j = \mathbf{v}_j$（精确检索）。但交叉项 $\sum_{i \neq j} (\mathbf{k}_i^\top \mathbf{k}_j) \mathbf{v}_i$ 构成**检索误差**。
@@ -328,7 +328,7 @@ Linear Attention 的状态更新 $\mathbf{S}_t = \mathbf{S}_{t-1} + \mathbf{v}_t
 DeltaNet 的状态更新公式：
 
 $$
-\mathbf{S}_t = \mathbf{S}_{t-1} - \beta_t \underbrace{(\mathbf{S}_{t-1} \mathbf{k}_t - \mathbf{v}_t)}_{\text{误差} = \mathbf{v}_t^{\text{old}} - \mathbf{v}_t} \mathbf{k}_t^\top
+\mathbf{S}_t = \mathbf{S}_{t-1} - \beta_t \underbrace{(\mathbf{S}_{t-1} \mathbf{k}_t - \mathbf{v}_t)}_{\text{error} = \mathbf{v}_t^{\text{old}} - \mathbf{v}_t} \mathbf{k}_t^\top
 $$
 
 展开重组：
@@ -354,7 +354,7 @@ $$
 则更新可分解为两步：
 
 $$
-\mathbf{S}_t = \mathbf{S}_{t-1} - \underbrace{\mathbf{v}_t^{\text{old}} \mathbf{k}_t^\top}_{\text{擦除：删除旧关联}} + \underbrace{\mathbf{v}_t^{\text{new}} \mathbf{k}_t^\top}_{\text{写入：添加新关联}}
+\mathbf{S}_t = \mathbf{S}_{t-1} - \underbrace{\mathbf{v}_t^{\text{old}} \mathbf{k}_t^\top}_{\text{erase: drop old assoc}} + \underbrace{\mathbf{v}_t^{\text{new}} \mathbf{k}_t^\top}_{\text{write: add new assoc}}
 $$
 
 **三种边界情况**：
@@ -539,7 +539,7 @@ $$
 **一般形式**：
 
 $$
-\mathcal{L}_t(\mathbf{S}) = \underbrace{\|\mathbf{S}_t - \alpha_t \mathbf{S}_{t-1}\|_F^2}_{\text{正则项：控制与旧状态的偏离}} - 2 \underbrace{\langle \mathbf{S}_t \mathbf{k}_t, \beta_t (\mathbf{v}_t - \alpha_t \mathbf{S}_{t-1} \mathbf{k}_t) \rangle}_{\text{损失项：学习 key→value 映射}}
+\mathcal{L}_t(\mathbf{S}) = \underbrace{\|\mathbf{S}_t - \alpha_t \mathbf{S}_{t-1}\|_F^2}_{\text{regularizer: limit drift from old state}} - 2 \underbrace{\langle \mathbf{S}_t \mathbf{k}_t, \beta_t (\mathbf{v}_t - \alpha_t \mathbf{S}_{t-1} \mathbf{k}_t) \rangle}_{\text{loss: learn key-to-value mapping}}
 $$
 
 - 正则项 $\|\mathbf{S}_t - \alpha_t \mathbf{S}_{t-1}\|_F^2$ 中的 $\alpha_t$ 控制"允许多大程度的遗忘"
@@ -595,15 +595,15 @@ $$
 **箭头记号**（表示衰减方向）：
 
 $$
-\overleftarrow{\mathbf{q}_{[t]}^r} = \gamma_{[t]}^r \mathbf{q}_{[t]}^r \quad \text{（衰减到块首）}
+\overleftarrow{\mathbf{q}_{[t]}^r} = \gamma_{[t]}^r \mathbf{q}_{[t]}^r \quad \text{(decay to block head)}
 $$
 
 $$
-\overrightarrow{\mathbf{k}_{[t]}^r} = \frac{\gamma_{[t]}^C}{\gamma_{[t]}^r} \mathbf{k}_{[t]}^r \quad \text{（衰减到块尾）}
+\overrightarrow{\mathbf{k}_{[t]}^r} = \frac{\gamma_{[t]}^C}{\gamma_{[t]}^r} \mathbf{k}_{[t]}^r \quad \text{(decay to block tail)}
 $$
 
 $$
-\overrightarrow{\mathbf{S}_{[t]}} = \gamma_{[t]}^C \mathbf{S}_{[t]} \quad \text{（状态在整块上衰减）}
+\overrightarrow{\mathbf{S}_{[t]}} = \gamma_{[t]}^C \mathbf{S}_{[t]} \quad \text{(state decays across block)}
 $$
 
 **修正后的 UT 变换**（$\widetilde{\mathbf{U}_{[t]}}$ 融入衰减掩码 $\Gamma_{[t]}$）：
@@ -778,7 +778,7 @@ $$
 #### 分块输出
 
 $$
-\mathbf{O}_{[t]} = \underbrace{(\boldsymbol{\Gamma}_{[t]}^{1 \to C} \odot \mathbf{Q}_{[t]}) \mathbf{S}_{[t]}}_{\text{块间贡献}} + \underbrace{\text{Tril}\left((\boldsymbol{\Gamma}_{[t]}^{1 \to C} \odot \mathbf{Q}_{[t]}) \left(\frac{\mathbf{K}_{[t]}}{\boldsymbol{\Gamma}_{[t]}^{1 \to C}}\right)^\top\right)}_{\text{块内贡献}} \underbrace{(\mathbf{U}_{[t]} - \mathbf{W}_{[t]} \mathbf{S}_{[t]})}_{\text{伪 value 项}}
+\mathbf{O}_{[t]} = \underbrace{(\boldsymbol{\Gamma}_{[t]}^{1 \to C} \odot \mathbf{Q}_{[t]}) \mathbf{S}_{[t]}}_{\text{inter-block}} + \underbrace{\text{Tril}\left((\boldsymbol{\Gamma}_{[t]}^{1 \to C} \odot \mathbf{Q}_{[t]}) \left(\frac{\mathbf{K}_{[t]}}{\boldsymbol{\Gamma}_{[t]}^{1 \to C}}\right)^\top\right)}_{\text{intra-block}} \underbrace{(\mathbf{U}_{[t]} - \mathbf{W}_{[t]} \mathbf{S}_{[t]})}_{\text{pseudo-value}}
 $$
 
 ### 5.6 神经参数化

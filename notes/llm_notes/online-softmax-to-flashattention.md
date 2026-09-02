@@ -92,7 +92,7 @@ $$
 GPU 的吞吐瓶颈分两种：算力（FLOPs/s）与带宽（bytes/s）。一个算子受哪个瓶颈约束，由**算术强度**（arithmetic intensity = FLOPs ÷ 访存字节数）决定：
 
 $$
-\text{算术强度} > \text{盈亏平衡点} \Rightarrow \text{compute-bound}；\quad \text{算术强度} < \text{盈亏平衡点} \Rightarrow \text{memory-bound}
+\text{arithmetic intensity} > \text{break-even point} \Rightarrow \text{compute-bound};\quad \text{arithmetic intensity} < \text{break-even point} \Rightarrow \text{memory-bound}
 $$
 
 以 A100 为例，盈亏平衡点约为 $312\ \text{TFLOPS} \div 1.6\ \text{TB/s} \approx 195$ FLOP/byte（FP16 张量核口径）。
@@ -114,7 +114,7 @@ softmax 每读一个字节只做几次简单运算（减、exp、加、除），
 对数据流 $x_1, x_2, \ldots$ 维护两个标量状态：
 
 $$
-m_k = \max_{1 \le i \le k} x_i \quad (\text{截至 } k \text{ 的运行最大值}), \qquad l_k = \sum_{i=1}^{k} e^{x_i - m_k} \quad (\text{以 } m_k \text{ 为基准的运行求和})
+m_k = \max_{1 \le i \le k} x_i \quad (\text{running max up to } k), \qquad l_k = \sum_{i=1}^{k} e^{x_i - m_k} \quad (\text{running sum w.r.t. } m_k)
 $$
 
 难点在于：$l_k$ 是**以当前最大值 $m_k$ 为基准**累加的。如果第 $k+1$ 个元素刷新了最大值，之前累加的每一项 $e^{x_i - m_k}$ 的基准都过时了——难道要全部重算？
@@ -136,7 +136,7 @@ m_{k+1} = \max(m_k,\ x_{k+1})
 $$
 
 $$
-l_{k+1} = \sum_{i=1}^{k+1} e^{x_i - m_{k+1}} = \underbrace{\sum_{i=1}^{k} e^{x_i - m_k} \cdot e^{m_k - m_{k+1}}}_{\text{旧部分换基准}} + \underbrace{e^{x_{k+1} - m_{k+1}}}_{\text{新元素}} = \alpha \cdot l_k + e^{x_{k+1} - m_{k+1}}
+l_{k+1} = \sum_{i=1}^{k+1} e^{x_i - m_{k+1}} = \underbrace{\sum_{i=1}^{k} e^{x_i - m_k} \cdot e^{m_k - m_{k+1}}}_{\text{old partial, re-based}} + \underbrace{e^{x_{k+1} - m_{k+1}}}_{\text{new element}} = \alpha \cdot l_k + e^{x_{k+1} - m_{k+1}}
 $$
 
 于是一遍扫描的递推就是：
@@ -224,7 +224,7 @@ GPU 的存储是一座金字塔，越靠近算力越小越快。以 A100（Flash
 
 也就是说，**真正消耗时间的不是矩阵乘（compute-bound，跑得快），而是 $S$ 和 $P$ 这两个 $N \times N$ 矩阵在 HBM 上的反复读写**。用 roofline 语言说：标准注意力把两个 compute-bound 的 GEMM 用一个 memory-bound 的 softmax 粘起来，结果整体被拖到 memory-bound 的沟里。
 
-训练场景还要再补一刀：反向传播需要 $S$ 和 $P$，标准实现会把它们从前向**存下来**供反向使用——$\Theta(N^2)$ 的显存占用随序列长度平方增长。$N = 64$K、batch 32、32 头的模型，光注意力中间矩阵就要 PB 级——这就是长序列训练"显存爆炸"的真正来源。
+训练场景还要再补一刀：反向传播需要 $S$ 和 $P$，标准实现会把它们从前向**存下来**供反向使用——$\Theta(N^2)$ 的显存占用随序列长度平方增长。$N = 64\text{K}$、batch 32、32 头的模型，光注意力中间矩阵就要 PB 级——这就是长序列训练"显存爆炸"的真正来源。
 
 ### 3.3 核心问题
 
@@ -273,7 +273,7 @@ $$
 **第三步：以新最大值为基准，算未归一化权重**。
 
 $$
-\tilde{P}_{ij} = e^{S_{ij} - m_i^{new}} \in \mathbb{R}^{B_r \times B_c} \quad (\text{元素均} \in (0, 1]\text{，安全})
+\tilde{P}_{ij} = e^{S_{ij} - m_i^{new}} \in \mathbb{R}^{B_r \times B_c} \quad (\text{entries} \in (0, 1]\text{, safe})
 $$
 
 **第四步：修正因子换基准**（这就是 2.2 节的 $\alpha$，现在是逐行的）。
@@ -302,7 +302,7 @@ $$
 
 直观理解：**每个 KV 块被重复读取 $N/B_r$ 次**，而 $B_r \approx M/d$ 由 SRAM 容量决定——SRAM 越大，重复读越少。论文还证明了匹配的下界：对精确注意力，任何算法在 $M \in [d, Nd]$ 范围内都需要 $\Omega(N^2 d^2 / M)$ 次 HBM 访问——**FlashAttention 的 IO 复杂度在同阶意义下已是最优**。
 
-代入典型数字（$N = 8192$，$M \approx 50$K 元素）：
+代入典型数字（$N = 8192$，$M \approx 50\text{K}$ 元素）：
 
 | 头维 $d$ | $N^2 d^2 / M$ ÷ $N^2$ | 相对标准实现的 HBM 访问比 |
 | --- | --- | --- |
@@ -370,7 +370,7 @@ GPU 上两类运算的吞吐相差悬殊（A100）：张量核 GEMM 312 TFLOPS�
 FA2 的改法——**延迟归一化（deferred normalization）**：内循环里只维护**未归一化**的累加器 $\tilde{O}_i$，把除法推迟到所有 KV 块扫完之后只做一次：
 
 $$
-\tilde{O}_i \leftarrow \alpha \cdot \tilde{O}_i + \tilde{P}_{ij} V_j \quad (\text{内循环}), \qquad O_i = \tilde{O}_i / l_i \quad (\text{扫完后一次})
+\tilde{O}_i \leftarrow \alpha \cdot \tilde{O}_i + \tilde{P}_{ij} V_j \quad (\text{inner loop}), \qquad O_i = \tilde{O}_i / l_i \quad (\text{once after full scan})
 $$
 
 对比 4.2 节：省掉了每步的除法，且 $O$ 的 rescale 从"乘 $\alpha l_i / l_i^{new}$"简化为"乘 $\alpha$"。数学上等价（把 $O_i \cdot l_i$ 这个不变量维护到底再除掉）。前向结束时顺带输出 $L = m + \log l$ 供反向使用。

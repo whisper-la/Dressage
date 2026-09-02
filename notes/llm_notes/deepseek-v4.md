@@ -121,7 +121,9 @@ LLM 的 RL 后训练：模型（策略 $\pi_\theta$）对 prompt 生成回答，
 
 **GRPO（Group Relative Policy Optimization，DeepSeek 提出）**省掉了 PPO 里和主模型一样大的价值模型：同一题目采样 $G$ 条回答，用**组内统计**算优势
 
-$$A_i = \frac{R_i - \mathrm{mean}(R_1, \dots, R_G)}{\mathrm{std}(R_1, \dots, R_G)}$$
+$$
+A_i = \frac{R_i - \mathrm{mean}(R_1, \dots, R_G)}{\mathrm{std}(R_1, \dots, R_G)}
+$$
 
 即"比同组平均好多少"。V4 的专家模型 RL 阶段用的就是 GRPO，超参与 R1/V3.2 系列基本一致。更系统的 PPO/GRPO/GSPO/DAPO 背景可参见本仓库笔记 [`../llm-rl-algorithms-zh.md`](../llm-rl-algorithms-zh.md)。
 
@@ -227,7 +229,9 @@ $$A_i = \frac{R_i - \mathrm{mean}(R_1, \dots, R_G)}{\mathrm{std}(R_1, \dots, R_G
 
 **第一步：标准 HC 的更新式。** 设第 $l$ 层前的残差状态为 $X_l = [\mathbf{x}_{l,1}; \ldots; \mathbf{x}_{l,n_{\text{hc}}}]^T \in \mathbb{R}^{n_{\text{hc}} \times d}$（$n_{\text{hc}}$ 条车道、每条 $d$ 维），HC 引入三个线性映射：
 
-$$X_{l+1} = B_l X_l + C_l\, \mathcal{F}_l(A_l X_l) \tag{1}$$
+$$
+X_{l+1} = B_l X_l + C_l\, \mathcal{F}_l(A_l X_l) \tag{1}
+$$
 
 - $A_l \in \mathbb{R}^{1 \times n_{\text{hc}}}$：**输入映射**——把 $n_{\text{hc}}$ 条车道加权混合成一份 $d$ 维输入，喂给本层 $\mathcal{F}_l$（如 MoE 层）；注意层输入 $A_l X_l \in \mathbb{R}^d$ 仍是 $d$ 维，所以拓宽残差流**不影响层内设计**；
 - $C_l \in \mathbb{R}^{n_{\text{hc}} \times 1}$：**输出映射**——把本层的 $d$ 维输出按权重写回各条车道；
@@ -235,29 +239,43 @@ $$X_{l+1} = B_l X_l + C_l\, \mathcal{F}_l(A_l X_l) \tag{1}$$
 
 **第二步：流形约束。** mHC 把 $B_l$ 约束到双随机矩阵流形（Birkhoff 多面体）：
 
-$$\mathcal{M} := \{M \in \mathbb{R}^{n \times n} \mid M\mathbf{1}_n = \mathbf{1}_n,\ \mathbf{1}_n^T M = \mathbf{1}_n^T,\ M \ge 0\} \tag{2}$$
+$$
+\mathcal{M} := \{M \in \mathbb{R}^{n \times n} \mid M\mathbf{1}_n = \mathbf{1}_n,\ \mathbf{1}_n^T M = \mathbf{1}_n^T,\ M \ge 0\} \tag{2}
+$$
 
 三个条件逐符号：$M\mathbf{1}_n = \mathbf{1}_n$（每行和为 1）；$\mathbf{1}_n^T M = \mathbf{1}_n^T$（每列和为 1）；$M \ge 0$（元素非负）。同时，输入/输出映射 $A_l, C_l$ 用 Sigmoid 约束为**非负有界**，避免正负信号相消（signal cancellation）。
 
 **第三步：动态参数化。** 三个映射的参数不是静态学习的，而是**由输入动态生成**（动态分量）+ 静态偏置的组合。先把输入展平归一化：
 
-$$\hat{X}_l = \mathrm{RMSNorm}(\mathrm{vec}(X_l)) \in \mathbb{R}^{1 \times n_{\text{hc}} d}$$
+$$
+\hat{X}_l = \mathrm{RMSNorm}(\mathrm{vec}(X_l)) \in \mathbb{R}^{1 \times n_{\text{hc}} d}
+$$
 
 再生成无约束原始参数：
 
-$$\tilde{A}_l = \alpha_l^{\mathrm{pre}} \cdot (\hat{X}_l W_l^{\mathrm{pre}}) + S_l^{\mathrm{pre}} \tag{3}$$
-$$\tilde{B}_l = \alpha_l^{\mathrm{res}} \cdot \mathrm{Mat}(\hat{X}_l W_l^{\mathrm{res}}) + S_l^{\mathrm{res}} \tag{4}$$
-$$\tilde{C}_l = \alpha_l^{\mathrm{post}} \cdot (\hat{X}_l W_l^{\mathrm{post}})^T + S_l^{\mathrm{post}} \tag{5}$$
+$$
+\tilde{A}_l = \alpha_l^{\mathrm{pre}} \cdot (\hat{X}_l W_l^{\mathrm{pre}}) + S_l^{\mathrm{pre}} \tag{3}
+$$
+$$
+\tilde{B}_l = \alpha_l^{\mathrm{res}} \cdot \mathrm{Mat}(\hat{X}_l W_l^{\mathrm{res}}) + S_l^{\mathrm{res}} \tag{4}
+$$
+$$
+\tilde{C}_l = \alpha_l^{\mathrm{post}} \cdot (\hat{X}_l W_l^{\mathrm{post}})^T + S_l^{\mathrm{post}} \tag{5}
+$$
 
 逐符号：$W_l^{\mathrm{pre}}, W_l^{\mathrm{post}} \in \mathbb{R}^{n_{\text{hc}} d \times n_{\text{hc}}}$、$W_l^{\mathrm{res}} \in \mathbb{R}^{n_{\text{hc}} d \times n_{\text{hc}}^2}$ 是生成动态分量的可学习参数；$\mathrm{Mat}(\cdot)$ 把 $n_{\text{hc}}^2$ 维向量重塑成 $n_{\text{hc}} \times n_{\text{hc}}$ 矩阵；$S_l^{\cdot}$ 是可学习静态偏置；$\alpha_l^{\cdot}$ 是**初始化为小值**的可学习门控因子——训练初期动态分量几乎为零，网络行为接近静态 HC，随训练逐渐学会"因输入而异地调度车道"。
 
 **第四步：施加约束。** 输入/输出映射过 Sigmoid：
 
-$$A_l = \sigma(\tilde{A}_l), \qquad C_l = 2\sigma(\tilde{C}_l) \tag{6, 7}$$
+$$
+A_l = \sigma(\tilde{A}_l), \qquad C_l = 2\sigma(\tilde{C}_l) \tag{6, 7}
+$$
 
 残差映射用 **Sinkhorn-Knopp 算法**投影到 $\mathcal{M}$：先取指数保证正性 $M^{(0)} = \exp(\tilde{B}_l)$，然后交替做行归一化 $\mathcal{T}_r$ 和列归一化 $\mathcal{T}_c$：
 
-$$M^{(t)} = \mathcal{T}_r(\mathcal{T}_c(M^{(t-1)})) \tag{8}$$
+$$
+M^{(t)} = \mathcal{T}_r(\mathcal{T}_c(M^{(t-1)})) \tag{8}
+$$
 
 迭代 $t_{\max} = 20$ 次收敛，得 $B_l = M^{(t_{\max})}$。（解读）Sinkhorn 的妙处：整个投影过程只含 exp 和逐行/逐列除法，**完全可微、GPU 友好**，可以嵌在计算图里端到端反传。
 
@@ -301,16 +319,24 @@ CSA 的四步流水线：**压缩 KV → Lightning Indexer 稀疏选择 → 共�
 
 设输入隐状态序列 $H \in \mathbb{R}^{n \times d}$（$n$ 个 token，$d$ 维）。CSA 先算出**两系列** KV 条目和对应的压缩权重：
 
-$$C^a = H \cdot W^{aKV}, \quad C^b = H \cdot W^{bKV} \tag{9}$$
-$$Z^a = H \cdot W^{aZ}, \quad Z^b = H \cdot W^{bZ} \tag{10}$$
+$$
+C^a = H \cdot W^{aKV}, \quad C^b = H \cdot W^{bKV} \tag{9}
+$$
+$$
+Z^a = H \cdot W^{aZ}, \quad Z^b = H \cdot W^{bZ} \tag{10}
+$$
 
 其中 $W^{aKV}, W^{bKV}, W^{aZ}, W^{bZ} \in \mathbb{R}^{d \times c}$ 是可学习参数，$c$ 是头维度（V4 为 512）。注意 $C^a/C^b$ 是"内容"，$Z^a/Z^b$ 是"该条目在合并时该占多大分量"的打分。
 
 然后每 $m$ 个条目压缩成 1 个。第 $i$ 个压缩条目 $C^{\text{Comp}}_i$ 的计算：
 
-$$[S^a_{mi:m(i+1)-1}; S^b_{m(i-1):mi-1}] = \mathrm{Softmax}_{\text{row}}\big([Z^a_{mi:m(i+1)-1} + B^a;\ Z^b_{m(i-1):mi-1} + B^b]\big) \tag{11}$$
+$$
+[S^a_{mi:m(i+1)-1}; S^b_{m(i-1):mi-1}] = \mathrm{Softmax}_{\text{row}}\big([Z^a_{mi:m(i+1)-1} + B^a;\ Z^b_{m(i-1):mi-1} + B^b]\big) \tag{11}
+$$
 
-$$C^{\text{Comp}}_i = \sum_{j=mi}^{m(i+1)-1} S^a_j \odot C^a_j + \sum_{j=m(i-1)}^{mi-1} S^b_j \odot C^b_j \tag{12}$$
+$$
+C^{\text{Comp}}_i = \sum_{j=mi}^{m(i+1)-1} S^a_j \odot C^a_j + \sum_{j=m(i-1)}^{mi-1} S^b_j \odot C^b_j \tag{12}
+$$
 
 逐符号与要点：
 - $B^a, B^b \in \mathbb{R}^{m \times c}$ 是**可学习位置偏置**——让模型知道被合并的 token 在块内的相对位置；
@@ -323,23 +349,33 @@ $$C^{\text{Comp}}_i = \sum_{j=mi}^{m(i+1)-1} S^a_j \odot C^a_j + \sum_{j=m(i-1)}
 
 先用同样的压缩操作得到索引器键 $K^{\text{IComp}} \in \mathbb{R}^{\frac{n}{m} \times c^I}$（$c^I = 128$ 是索引器头维度）。对查询 token $t$，低秩生成索引器查询：
 
-$$\mathbf{c}_t^Q = \mathbf{h}_t \cdot W^{DQ} \tag{13}$$
-$$\mathbf{q}_t^I = [\mathbf{q}_{t,1}^I; \ldots; \mathbf{q}_{t,n_h^I}^I] = \mathbf{c}_t^Q \cdot W^{IUQ} \tag{14}$$
+$$
+\mathbf{c}_t^Q = \mathbf{h}_t \cdot W^{DQ} \tag{13}
+$$
+$$
+\mathbf{q}_t^I = [\mathbf{q}_{t,1}^I; \ldots; \mathbf{q}_{t,n_h^I}^I] = \mathbf{c}_t^Q \cdot W^{IUQ} \tag{14}
+$$
 
 - $\mathbf{h}_t \in \mathbb{R}^d$ 是 query token 的输入隐状态；$\mathbf{c}_t^Q \in \mathbb{R}^{d_c}$ 是**查询压缩潜向量**（先下投影到 $d_c$ 维，Flash/Pro 分别为 1024/1536）；
 - $W^{DQ} \in \mathbb{R}^{d \times d_c}$、$W^{IUQ} \in \mathbb{R}^{d_c \times c^I n_h^I}$ 是下/上投影矩阵；$n_h^I = 64$ 个索引器头。
 
 token $t$ 与前驱压缩块 $s$（要求 $s < \lfloor t/m \rfloor$，保证因果性）的索引分数：
 
-$$[w_{t,1}^I; \ldots; w_{t,n_h^I}^I] = \mathbf{w}_t^I = \mathbf{h}_t \cdot W^w \tag{15}$$
-$$I_{t,s} = \sum_{h=1}^{n_h^I} w_{t,h}^I \cdot \mathrm{ReLU}\big(\mathbf{q}_{t,h}^I \cdot K^{\text{IComp}}_s\big) \tag{16}$$
+$$
+[w_{t,1}^I; \ldots; w_{t,n_h^I}^I] = \mathbf{w}_t^I = \mathbf{h}_t \cdot W^w \tag{15}
+$$
+$$
+I_{t,s} = \sum_{h=1}^{n_h^I} w_{t,h}^I \cdot \mathrm{ReLU}\big(\mathbf{q}_{t,h}^I \cdot K^{\text{IComp}}_s\big) \tag{16}
+$$
 
 - $W^w \in \mathbb{R}^{d \times n_h^I}$：给每个索引器头生成一个**动态权重**（输入相关），模型可以按当前 query 决定"听哪个头的意见"；
 - $\mathrm{ReLU}$：负的相关性直接置零，只累积正向证据。
 
 然后 top-k 选择：
 
-$$\mathcal{C}^{\text{SprsComp}}_t = \{C^{\text{Comp}}_s \ \big|\ I_{t,s} \in \text{Top-k}(I_{t,:})\} \tag{17}$$
+$$
+\mathcal{C}^{\text{SprsComp}}_t = \{C^{\text{Comp}}_s \ \big|\ I_{t,s} \in \text{Top-k}(I_{t,:})\} \tag{17}
+$$
 
 （解读）注意级联效果：原始 $n$ 个 token 先被压成 $n/m$ 个候选（m=4，候选池缩小 4 倍），再从中选 top-$k$（512/1024）个进核心注意力。1M token 时候选池 25 万条、实际参与核心注意力的仅约 1 千条——这就是"FLOPs 降至 V3.2 的 27%"的主要来源之一。
 
@@ -347,11 +383,15 @@ $$\mathcal{C}^{\text{SprsComp}}_t = \{C^{\text{Comp}}_s \ \big|\ I_{t,s} \in \te
 
 从**同一个**查询潜向量 $\mathbf{c}_t^Q$ 上投影出全部注意力查询：
 
-$$\mathbf{q}_t = [\mathbf{q}_{t,1}; \ldots; \mathbf{q}_{t,n_h}] = \mathbf{c}_t^Q \cdot W^{UQ} \tag{18}$$
+$$
+\mathbf{q}_t = [\mathbf{q}_{t,1}; \ldots; \mathbf{q}_{t,n_h}] = \mathbf{c}_t^Q \cdot W^{UQ} \tag{18}
+$$
 
 （$W^{UQ} \in \mathbb{R}^{d_c \times c n_h}$；与索引器查询共享 $\mathbf{c}_t^Q$，省一次下投影。）核心注意力以 MQA 方式进行——**每个压缩 KV 条目同时充当 Key 和 Value**：
 
-$$\mathbf{o}_{t,i} = \mathrm{CoreAttn}\big(\text{query}{=}\mathbf{q}_{t,i},\ \text{key}{=}\mathcal{C}^{\text{SprsComp}}_t,\ \text{value}{=}\mathcal{C}^{\text{SprsComp}}_t\big) \tag{19}$$
+$$
+\mathbf{o}_{t,i} = \mathrm{CoreAttn}\big(\text{query}{=}\mathbf{q}_{t,i},\ \text{key}{=}\mathcal{C}^{\text{SprsComp}}_t,\ \text{value}{=}\mathcal{C}^{\text{SprsComp}}_t\big) \tag{19}
+$$
 
 $\mathbf{o}_{t,i} \in \mathbb{R}^c$ 是第 $i$ 个头在 token $t$ 的输出。（解读）"同一条目既当 K 又当 V"是 CSA/HCA 最大胆的简化：KV cache 里**每个条目只存一份** $c$ 维向量，不再需要 K、V 两份——这是 KV cache 体积再砍一半的直接原因，也是对 §1.2"沿头/维度压缩"路线的极简化。
 
@@ -363,10 +403,16 @@ $\mathbf{o}_{t,i} \in \mathbb{R}^c$ 是第 $i$ 个头在 token $t$ 的输出。�
 
 HCA 与 CSA **同构但更极端**：压缩率 $m' = 128$（$\gg m = 4$），**不做稀疏选择**，对压缩后的全部条目做稠密注意力。
 
-$$C = H \cdot W^{KV}, \qquad Z = H \cdot W^{Z} \tag{20, 21}$$
+$$
+C = H \cdot W^{KV}, \qquad Z = H \cdot W^{Z} \tag{20, 21}
+$$
 
-$$S_{m'i:m'(i+1)-1} = \mathrm{Softmax}_{\text{row}}\big(Z_{m'i:m'(i+1)-1} + B\big) \tag{22}$$
-$$C^{\text{Comp}}_i = \sum_{j=m'i}^{m'(i+1)-1} S_j \odot C_j \tag{23}$$
+$$
+S_{m'i:m'(i+1)-1} = \mathrm{Softmax}_{\text{row}}\big(Z_{m'i:m'(i+1)-1} + B\big) \tag{22}
+$$
+$$
+C^{\text{Comp}}_i = \sum_{j=m'i}^{m'(i+1)-1} S_j \odot C_j \tag{23}
+$$
 
 与 CSA 的三点差异：
 1. **只有一系列** KV 条目、不做重叠压缩（式 (22)-(23) 只有一项，没有 $C^b$ 分支）；
@@ -385,7 +431,9 @@ $$C^{\text{Comp}}_i = \sum_{j=m'i}^{m'(i+1)-1} S_j \odot C_j \tag{23}$$
 
 **④ Attention Sink。** 设可学习 sink logits $\{z'_1, \ldots, z'_{n_h}\}$，第 $h$ 个头的注意力分数：
 
-$$s_{h,i,j} = \frac{\exp(z_{h,i,j})}{\sum_k \exp(z_{h,i,k}) + \exp(z'_h)} \tag{27}$$
+$$
+s_{h,i,j} = \frac{\exp(z_{h,i,j})}{\sum_k \exp(z_{h,i,k}) + \exp(z'_h)} \tag{27}
+$$
 
 分母里多出的 $\exp(z'_h)$ 让该头所有真实条目的分数总和可以小于 1 甚至接近 0——"这个头此刻可以选择什么都不看"。
 
@@ -462,7 +510,9 @@ $$s_{h,i,j} = \frac{\exp(z_{h,i,j})}{\sum_k \exp(z_{h,i,k}) + \exp(z'_h)} \tag{2
 
 Newton-Schulz 迭代把矩阵 $M$ 近似正交化（SVD 视角：$M = U\Sigma V^T \to UV^T$，即把所有奇异值拉到 1）。先归一化 $M_0 = M / \|M\|_F$，每次迭代：
 
-$$M_k = a M_{k-1} + b\,(M_{k-1} M_{k-1}^T)\,M_{k-1} + c\,(M_{k-1} M_{k-1}^T)^2 M_{k-1} \tag{28}$$
+$$
+M_k = a M_{k-1} + b\,(M_{k-1} M_{k-1}^T)\,M_{k-1} + c\,(M_{k-1} M_{k-1}^T)^2 M_{k-1} \tag{28}
+$$
 
 V4 共迭代 10 步，分两段：
 - **前 8 步**：系数 $(a, b, c) = (3.4445,\ -4.7750,\ 2.0315)$——快速收敛，把奇异值迅速逼近 1；
@@ -592,7 +642,9 @@ V4 的大量定制内核用 TileLang 开发，三个技术点：
 
 实践中发现对 SwiGLU 做钳位能有效消除离群值、显著稳定训练且**不损害性能**。两个模型全程使用：
 
-$$\text{Linear:}\ \ \mathrm{clamp}(x, -10, 10), \qquad \text{Gate:}\ \ \min(\mathrm{SiLU}(x),\ 10)$$
+$$
+\text{Linear:}\ \ \mathrm{clamp}(x, -10, 10), \qquad \text{Gate:}\ \ \min(\mathrm{SiLU}(x),\ 10)
+$$
 
 即线性分支（Linear）钳到 $[-10, 10]$，门控分支（Gate）上限封 10。
 
@@ -657,9 +709,11 @@ Think Max 会在系统提示开头注入一条"绝对全力推理"指令（要�
 
 **问题**：OPD 的目标是对齐学生与教师的分布。给定 $N$ 个专家 $\{\pi_{E_1}, \ldots, \pi_{E_N}\}$：
 
-$$\mathcal{L}_{\text{OPD}}(\theta) = \sum_{i=1}^{N} w_i \cdot D_{\text{KL}}\big(\pi_\theta \,\|\, \pi_{E_i}\big) \tag{29}$$
+$$
+\mathcal{L}_{\text{OPD}}(\theta) = \sum_{i=1}^{N} w_i \cdot D_{\text{KL}}\big(\pi_\theta \,\|\, \pi_{E_i}\big) \tag{29}
+$$
 
-（反向 KL：从学生采样轨迹、让学生的分布去贴近教师；$w_i$ 为教师权重。）以往工作为省资源，把全词表 KL 简化成 **token 级 KL 估计**——把 $\texttt{sg}\big[\log \frac{\pi_{E_i}(y_t|x, y_{<t})}{\pi_\theta(y_t|x, y_{<t})}\big]$（sg = stop gradient）当作每个 token 的"优势"塞进策略损失。这样能复用 RL 框架，但**梯度方差大、训练不稳**。
+（反向 KL：从学生采样轨迹、让学生的分布去贴近教师；$w_i$ 为教师权重。）以往工作为省资源，把全词表 KL 简化成 **token 级 KL 估计**——把 $\texttt{sg}\big[\log \frac{\pi_{E_i}(y_t|x, y_{\lt t})}{\pi_\theta(y_t|x, y_{\lt t})}\big]$（sg = stop gradient）当作每个 token 的"优势"塞进策略损失。这样能复用 RL 框架，但**梯度方差大、训练不稳**。
 
 **做法**：V4 采用**全词表 logit 蒸馏**——计算反向 KL 时保留教师在**整个词表**上的完整分布，梯度估计更稳、教师知识被忠实蒸馏。（解读）对比：token 级估计是"只看实际生成的那一个 token 的比值"，单样本噪声极大；全词表是"整个分布的加权平均"，解析地消掉了采样噪声。代价是工程昂贵——这就是下一小节要解决的问题。
 

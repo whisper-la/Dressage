@@ -62,7 +62,9 @@ RL 训练中同一条 token 序列要经历两次前向：
 
 策略梯度 RL 的 loss 逐 token 计算重要性采样比率（见 [llm-rl-algorithms-zh.md](llm-rl-algorithms-zh.md) 8.1 节）：
 
-$$r_t(\theta) = \frac{\pi_\theta(y_t \mid y_{<t})}{\pi_{\theta_{old}}(y_t \mid y_{<t})}$$
+$$
+r_t(\theta) = \frac{\pi_\theta(y_t \mid y_{\lt t})}{\pi_{\theta_{old}}(y_t \mid y_{\lt t})}
+$$
 
 分子来自训练前向，分母来自推理采样。路由不一致意味着**分子分母是用不同的专家路径算出来的**：
 

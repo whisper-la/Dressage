@@ -95,7 +95,7 @@ GKD 让**学生**在训练中采样输出序列，教师在这些序列上提供
 GKD 把蒸馏目标泛化为三个可独立选择的旋钮：
 
 $$
-\mathcal{L}_{\text{GKD}}(\theta) = \mathbb{E}_{y \sim \mathcal{D}_{\text{mix}}} \; D\big(\pi_T(\cdot|x, y_{<t}) \,\big\|\, \pi_\theta(\cdot|x, y_{<t})\big)
+\mathcal{L}_{\text{GKD}}(\theta) = \mathbb{E}_{y \sim \mathcal{D}_{\text{mix}}} \; D\big(\pi_T(\cdot|x, y_{\lt t}) \,\big\|\, \pi_\theta(\cdot|x, y_{\lt t})\big)
 $$
 
 | 旋钮 | 选项 | 效果 |
@@ -132,12 +132,12 @@ GKD 给出了完整框架，但验证停留在学术规模（摘要、翻译、�
 
 **OPD：学生从自身策略采样轨迹，教师对轨迹上每个 token 提供对数概率，以逐 token reverse KL 为稠密监督信号更新学生。** 流程：
 
-1. **学生采样**：$y \sim \pi_\theta(\cdot|x)$，与 RL 完全一样（学生 logprob $\log \pi_\theta(y_t|x, y_{<t})$ 在 rollout 时顺手记录，重要性采样损失本来就要用）
-2. **教师打分**：对同一条轨迹计算 $\log \pi_T(y_t|x, y_{<t})$——教师只需**一次前向传播**（compute_logprobs），不需要生成任何东西
+1. **学生采样**：$y \sim \pi_\theta(\cdot|x)$，与 RL 完全一样（学生 logprob $\log \pi_\theta(y_t|x, y_{\lt t})$ 在 rollout 时顺手记录，重要性采样损失本来就要用）
+2. **教师打分**：对同一条轨迹计算 $\log \pi_T(y_t|x, y_{\lt t})$——教师只需**一次前向传播**（compute_logprobs），不需要生成任何东西
 3. **计算逐 token reverse KL**：
 
 $$
-d_t = \log \pi_\theta(y_t \mid x, y_{<t}) - \log \pi_T(y_t \mid x, y_{<t})
+d_t = \log \pi_\theta(y_t \mid x, y_{\lt t}) - \log \pi_T(y_t \mid x, y_{\lt t})
 $$
 
 4. **更新**：把 $-d_t$ 当作逐 token 优势（或叠加到任务优势上），走标准的 policy gradient / 重要性采样损失
@@ -147,7 +147,7 @@ $$
 **KL 蒸馏视角**：最小化学生轨迹上的 reverse KL（Thinking Machines 版式，折扣因子取 0，每步只优化当下这一个 token）：
 
 $$
-\min_\theta \; \mathbb{E}_{x \sim \mathcal{D},\; y \sim \pi_\theta(\cdot|x)} \Big[ D_{\text{KL}}\big(\pi_\theta(\cdot|x, y_{<t}) \,\big\|\, \pi_T(\cdot|x, y_{<t})\big) \Big]
+\min_\theta \; \mathbb{E}_{x \sim \mathcal{D},\; y \sim \pi_\theta(\cdot|x)} \Big[ D_{\text{KL}}\big(\pi_\theta(\cdot|x, y_{\lt t}) \,\big\|\, \pi_T(\cdot|x, y_{\lt t})\big) \Big]
 $$
 
 当学生与教师行为一致时 reverse KL 为 0——目标清晰、有下界、可监控。
@@ -155,7 +155,7 @@ $$
 **RL 稠密奖励视角**：把 reverse KL 塞进 RL 的奖励/优势通道。slime 的做法是**优势级融合**（见 6.1 节代码走读）：
 
 $$
-\hat{A}_t = A_t - \lambda_{\text{opd}} \cdot \big( \log \pi_\theta(y_t \mid x, y_{<t}) - \log \pi_T(y_t \mid x, y_{<t}) \big)
+\hat{A}_t = A_t - \lambda_{\text{opd}} \cdot \big( \log \pi_\theta(y_t \mid x, y_{\lt t}) - \log \pi_T(y_t \mid x, y_{\lt t}) \big)
 $$
 
 由此得到一个重要洞察：**OPD 是 RL 实现的"一行改动"**——任何带 KL 正则的 RL 训练栈，把正则的参考模型换成教师模型即得 OPD。两个极端帮助定位这个旋钮：
@@ -238,7 +238,7 @@ KAT-Coder-V2（本仓库 [kat-coder-v2.md](./kat-coder-v2.md)）把智能体编�
 Kimi K3（本仓库 [kimi.md](./kimi.md) §4.1.3）的场景更极致：RL 训出 9 个专家（3 个领域 × 3 档推理努力），MOPD 负责合并回一个统一模型。给定领域 $d$ 与采样到的努力档 $e$，用对应教师 $\pi^{(d,e)}_{\text{teacher}}$ 指导学生，逐 token OPD 奖励（报告 Eq. 15）：
 
 $$
-r^d_{\text{opd}}(y_t \mid e, x, y_{<t}) = \mathrm{clip}\!\left( \mathrm{sg}\!\left( \log \frac{\pi^{(d,e)}_{\text{teacher}}(y_t \mid x, y_{<t})}{\pi_\theta(y_t \mid e, x, y_{<t})} \right),\; -R_{\max},\; R_{\max} \right)
+r^d_{\text{opd}}(y_t \mid e, x, y_{\lt t}) = \mathrm{clip}\!\left( \mathrm{sg}\!\left( \log \frac{\pi^{(d,e)}_{\text{teacher}}(y_t \mid x, y_{\lt t})}{\pi_\theta(y_t \mid e, x, y_{\lt t})} \right),\; -R_{\max},\; R_{\max} \right)
 $$
 
 逐符号解读：

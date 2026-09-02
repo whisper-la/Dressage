@@ -87,9 +87,7 @@ $$
 令 $\Delta W=W-\hat{W}$，则：
 
 $$
-\|X\Delta W\|_2^2
-=
-\operatorname{tr}\left(\Delta W^T X^TX\Delta W\right)
+\|X\Delta W\|_2^2 = \operatorname{tr}\left(\Delta W^T X^TX\Delta W\right)
 $$
 
 所以输入激活的二阶统计量可作为 Hessian 的近似：
@@ -107,16 +105,11 @@ $$
 一种常见的简化表达为：
 
 $$
-\delta_q=
-\frac{w_q-\hat{w}_q}{[H^{-1}]_{qq}}
+\delta_q= \frac{w_q-\hat{w}_q}{[H^{-1}]_{qq}}
 $$
 
 $$
-W_{\text{remain}}
-\leftarrow
-W_{\text{remain}}
--
-\delta_q[H^{-1}]_{q,\text{remain}}
+W_{\text{remain}} \leftarrow W_{\text{remain}} - \delta_q[H^{-1}]_{q,\text{remain}}
 $$
 
 不同代码中的符号和索引写法会略有差异，但面试时要说清楚这个直觉：
@@ -274,18 +267,13 @@ $$
 AWQ 的目标可以直观写成：
 
 $$
-s^*=
-\arg\min_s
-\left\|
-XW-(XS^{-1})Q(SW)
-\right\|_2^2
+s^*= \arg\min_s \left\| XW-(XS^{-1})Q(SW) \right\|_2^2
 $$
 
 实际实现通常根据通道激活幅度生成缩放候选，例如：
 
 $$
-s_j \propto
-\left(\operatorname{mean}|X_j|\right)^\alpha
+s_j \propto \left(\operatorname{mean}|X_j|\right)^\alpha
 $$
 
 再搜索 $\alpha$ 或相关缩放参数，使层或 block 的输出重构误差最小。有些工程实现还会同时搜索 clipping ratio，减少离群值把量化范围拉得过宽的问题。

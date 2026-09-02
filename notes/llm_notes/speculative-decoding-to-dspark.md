@@ -54,7 +54,7 @@
 大语言模型本质上是一个条件概率模型。给定 prompt $x_1, x_2, \dots, x_n$，模型对续写序列的联合概率做**自回归分解**：
 
 $$
-p(x_{n+1}, \dots, x_{n+L} \mid x_{1:n}) = \prod_{t=1}^{L} p(x_{n+t} \mid x_{<n+t})
+p(x_{n+1}, \dots, x_{n+L} \mid x_{1:n}) = \prod_{t=1}^{L} p(x_{n+t} \mid x_{\lt n+t})
 $$
 
 这意味着生成是严格串行的：要得到第 $t$ 个新 token，必须先把前 $t-1$ 个新 token 喂进模型做一次完整前向，从输出 logits 上采样出 $x_{n+t}$，再开始下一步。生成 $L$ 个 token 就需要 $L$ 次串行前向，**任何一次前向都无法提前开始**——这是所有推理加速技术面对的根本约束。
@@ -296,14 +296,14 @@ $$
 **第三步：逐位置接受判定**。从左到右扫描 $k = 1, \dots, \gamma$：
 
 $$
-\beta_k = \min\left(1, \frac{p_t(x_k \mid x_0, x_{<k})}{p_d(x_k \mid x_0, x_{<k})}\right), \quad x_k \text{ 以概率 } \beta_k \text{ 被接受}
+\beta_k = \min\left(1, \frac{p_t(x_k \mid x_0, x_{\lt k})}{p_d(x_k \mid x_0, x_{\lt k})}\right), \quad x_k \text{ 以概率 } \beta_k \text{ 被接受}
 $$
 
 - 若 $x_k$ 被接受，继续检查 $x_{k+1}$；
 - 若 $x_k$ 被拒绝（首个拒绝位置），**丢弃 $x_k$ 及其后全部草稿**（$x_{k+1}, \dots, x_\gamma$ 无论多好都不再看），并从修正分布重采该位置：
 
 $$
-x_k^* \sim p'(\cdot) = \text{norm}\left(\max\left(0,\; p_t(\cdot \mid x_0, x_{<k}) - p_d(\cdot \mid x_0, x_{<k})\right)\right)
+x_k^* \sim p'(\cdot) = \text{norm}\left(\max\left(0,\; p_t(\cdot \mid x_0, x_{\lt k}) - p_d(\cdot \mid x_0, x_{\lt k})\right)\right)
 $$
 
 本轮结束，落袋 $k$ 个 token（$k-1$ 个接受的草稿 + 1 个修正 token）。
@@ -1245,13 +1245,13 @@ flowchart TB
 
 读法：**输入侧**三路汇入——anchor 给出确定起点，mask 占位符撑开 $\gamma$ 个待预测位置，$H_{\text{ctx}}$ 把目标模型的"内部想法"注入每一层；**加工侧**就是标准 Transformer 堆叠，唯一改造是注意力掩码换成块内双向；**输出侧**劈成两路——隐藏状态喂两个小头，过共享 LM Head 后的裸 logits 喂串行头。它与大模型的全部联系只有两处：共享（冻结的）embedding/LM Head、KV 注入——参数上完全独立训练。
 
-**串行级（sequential head）**。并行级的 $U_k$ 是相互独立算出的（块内双向注意力看到的是 mask 而非已采样的 token）。串行级为每个位置补一个**依赖前缀的转移偏置** $B_k(x_0, x_{<k}, \cdot) \in \mathbb{R}^{V}$，与基础 logits 相加后归一化，形成块内的因果分解：
+**串行级（sequential head）**。并行级的 $U_k$ 是相互独立算出的（块内双向注意力看到的是 mask 而非已采样的 token）。串行级为每个位置补一个**依赖前缀的转移偏置** $B_k(x_0, x_{\lt k}, \cdot) \in \mathbb{R}^{V}$，与基础 logits 相加后归一化，形成块内的因果分解：
 
 $$
-\boxed{P(X \mid x_0) = \prod_{k=1}^{\gamma} p_k(x_k \mid x_0, x_{<k}), \qquad p_k(v \mid x_0, x_{<k}) = \frac{\exp\left(U_k(v) + B_k(x_0, x_{<k}, v)\right)}{\sum_{u \in \mathcal{V}} \exp\left(U_k(u) + B_k(x_0, x_{<k}, u)\right)}}
+\boxed{P(X \mid x_0) = \prod_{k=1}^{\gamma} p_k(x_k \mid x_0, x_{\lt k}), \qquad p_k(v \mid x_0, x_{\lt k}) = \frac{\exp\left(U_k(v) + B_k(x_0, x_{\lt k}, v)\right)}{\sum_{u \in \mathcal{V}} \exp\left(U_k(u) + B_k(x_0, x_{\lt k}, u)\right)}}
 $$
 
-其中 $x_0$ 为 anchor token。推理时串行级从左到右逐位置采样：$x_k \sim p_k(\cdot \mid x_0, x_{<k})$，每步把已采样的 token 信息注入下一步的 $B$。由于该循环存在，串行级必须极轻（$T_{\text{sequential}} \ll T_{\text{parallel}}$），使草稿总延迟仍由并行级主导。DSpark 给出两种实例化：
+其中 $x_0$ 为 anchor token。推理时串行级从左到右逐位置采样：$x_k \sim p_k(\cdot \mid x_0, x_{\lt k})$，每步把已采样的 token 信息注入下一步的 $B$。由于该循环存在，串行级必须极轻（$T_{\text{sequential}} \ll T_{\text{parallel}}$），使草稿总延迟仍由并行级主导。DSpark 给出两种实例化：
 
 **实例化 A：Markov head（生产部署采用）**。只依赖紧邻的前一个 token，$B_k$ 退化为二元转移 $B(x_{k-1}, x_k)$。完整的转移矩阵是 $V \times V$（$V \approx 10^5$，直接存储需 $10^{10}$ 参数），用**低秩分解**压缩：
 
@@ -1315,7 +1315,7 @@ $$
 $$
 
 $$
-B_k(x_{<k}, \cdot) = \mathbf{W}_2^{\top} \tanh(\mathbf{W}_o \mathbf{z}_k)
+B_k(x_{\lt k}, \cdot) = \mathbf{W}_2^{\top} \tanh(\mathbf{W}_o \mathbf{z}_k)
 $$
 
 其中 $\mathbf{W}_g, \mathbf{W}_c, \mathbf{W}_o \in \mathbb{R}^{r \times (2r+d)}$ 由单个线性投影切分而来，$\mathbf{s}_0 = \mathbf{0}$。门控机制允许状态选择性地遗忘/写入，表达能力覆盖任意长度的块内依赖。实验（7.7 节）显示 RNN head 相对 Markov head 收益有限而成本更高，故生产默认 Markov head。
