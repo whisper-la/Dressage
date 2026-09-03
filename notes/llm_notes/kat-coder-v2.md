@@ -400,7 +400,7 @@ SFT 阶段的核心工作量在**数据构造**。五个专家各有一套针对
 **第一步 · 建立双向 Issue-PR 映射。** 从数十万个 GitHub 开源仓库（覆盖 11 种主流编程语言）中，以**已合并 PR 为锚点**，用 1.10 的嵌入技术做语义关联分析。对每个已合并 PR $p$，计算它与候选 Issue $i$ 的相关性分数：
 
 $$
-s(i, p) = \cos(\mathbf{e}_i, \mathbf{e}_p) \tag{1}
+s(i, p) = \cos(\mathbf{e}_i, \mathbf{e}_p) \quad (1)
 $$
 
 - $\mathbf{e}_i$：Issue 文本的嵌入向量；$\mathbf{e}_p$：PR 文本的嵌入向量；
@@ -440,7 +440,7 @@ $$
 **Stage 3 · 实例验证（F2P + P2P 双重标准）。** 设 $T_{fail}$ 为修复前失败的测试集、$T_{pass}$ 为修复前通过的测试集。一个修复后代码为 $\hat{c}$ 的实例被保留，**当且仅当**同时满足：
 
 $$
-\underbrace{\forall t \in T_{fail}:\ t(\hat{c}) = \text{Pass}}_{\text{Fail-to-Pass (F2P)}} \quad\wedge\quad \underbrace{\forall t \in T_{pass}:\ t(\hat{c}) = \text{Pass}}_{\text{Pass-to-Pass (P2P)}} \tag{2}
+\underbrace{\forall t \in T_{fail}:\ t(\hat{c}) = \text{Pass}}_{\text{Fail-to-Pass (F2P)}} \quad\wedge\quad \underbrace{\forall t \in T_{pass}:\ t(\hat{c}) = \text{Pass}}_{\text{Pass-to-Pass (P2P)}} \quad (2)
 $$
 
 - **F2P** 确认修复有效：所有原本失败的测试现在必须通过——保证这个任务"确实有一个坑被填上了"；
@@ -505,7 +505,7 @@ $$
 **怎么用**：口语化输入通常只覆盖 L1（一句"酷炫街头风"只是风格指引），模型**自回归地推断剩余层级**：
 
 $$
-\hat{L}_k = f_\theta(L_1, \hat{L}_2, \dots, \hat{L}_{k-1}), \quad k = 2, \dots, 7 \tag{3}
+\hat{L}_k = f_\theta(L_1, \hat{L}_2, \dots, \hat{L}_{k-1}), \quad k = 2, \dots, 7 \quad (3)
 $$
 
 即：给定用户的 L1 和自己已经推出来的 $\hat{L}_2 \dots \hat{L}_{k-1}$，逐层推出下一层，最后按完整方案生成代码。
@@ -572,7 +572,7 @@ $$
 2. 每个样本独立采样 $K=8$ 次，计算经验成功率（1.12 的 Pass@K 思想）：
 
 $$
-\hat{r} = \frac{1}{K}\sum_{j=1}^{K} \mathbb{1}[a_j = a^*] \tag{4}
+\hat{r} = \frac{1}{K}\sum_{j=1}^{K} \mathbb{1}[a_j = a^*] \quad (4)
 $$
 
 - $a_j$：第 $j$ 次采样的答案；$a^*$：标准答案；$\mathbb{1}[\cdot]$：指示函数（成立为 1，否则 0）；
@@ -625,7 +625,7 @@ $$
 **统一五元组。** 最后，把 RL 数据格式泛化为统一的五元组表示：
 
 $$
-\mathcal{D}_{RL} = \langle E,\ T_{tools},\ S_{agent},\ I_{task},\ V_{verifier} \rangle \tag{5}
+\mathcal{D}_{RL} = \langle E,\ T_{tools},\ S_{agent},\ I_{task},\ V_{verifier} \rangle \quad (5)
 $$
 
 | 分量 | 含义 | 对应 KwaiEnv 模块（解读） |
@@ -653,7 +653,7 @@ $$
 **KAT-Coder-V2 的折中：GSPO 的回合级（turn-level）改造。** 以**交互回合**为粒度，把完整生成序列 $y$ 切分成 $N$ 个离散回合。对包含 token 子集 $T_n$ 的第 $n$ 个回合，独立计算重要性比率：
 
 $$
-r_{turn}^{(n)}(\theta) = \prod_{i \in T_n} \frac{\pi_\theta(y_i \mid x, y_{\lt i})}{\pi_{\theta_{old}}(y_i \mid x, y_{\lt i})} \tag{6}
+r_{turn}^{(n)}(\theta) = \prod_{i \in T_n} \frac{\pi_\theta(y_i \mid x, y_{\lt i})}{\pi_{\theta_{old}}(y_i \mid x, y_{\lt i})} \quad (6)
 $$
 
 逐符号解释：
@@ -665,7 +665,7 @@ $$
 一组轨迹上的裁剪替代目标（对照 1.3 的 PPO 结构）：
 
 $$
-\mathcal{L}_{Turn}(\theta) = \mathbb{E}_{\tau \sim \pi_{\theta_{old}}}\left[ \frac{1}{N}\sum_{n=1}^{N} \min\left( r_{turn}^{(n)}(\theta) A_n,\ \mathrm{clip}\left( r_{turn}^{(n)}(\theta),\ 1-\epsilon,\ 1+\epsilon \right) A_n \right) \right] \tag{7}
+\mathcal{L}_{Turn}(\theta) = \mathbb{E}_{\tau \sim \pi_{\theta_{old}}}\left[ \frac{1}{N}\sum_{n=1}^{N} \min\left( r_{turn}^{(n)}(\theta) A_n,\ \mathrm{clip}\left( r_{turn}^{(n)}(\theta),\ 1-\epsilon,\ 1+\epsilon \right) A_n \right) \right] \quad (7)
 $$
 
 逐符号：$\tau$ 是一组（group）轨迹；$\frac{1}{N}\sum_n$ 对回合取平均；$A_n$ 是第 $n$ 个回合的**组级优势**；$\mathrm{clip}$ 和 $\min$ 就是 1.3 讲的 PPO 安全带——比率超出 $[1-\epsilon, 1+\epsilon]$ 的部分不许贪功。
@@ -692,7 +692,7 @@ $$
 策略梯度依赖蒙特卡洛估计（1.2、1.7）：
 
 $$
-\nabla J(\theta) = \mathbb{E}_{a \sim \pi_{rollout}}\left[ R(a)\, \frac{\pi_{train}(a)}{\pi_{rollout}(a)}\, \nabla \log \pi_{train}(a) \right] \tag{8}
+\nabla J(\theta) = \mathbb{E}_{a \sim \pi_{rollout}}\left[ R(a)\, \frac{\pi_{train}(a)}{\pi_{rollout}(a)}\, \nabla \log \pi_{train}(a) \right] \quad (8)
 $$
 
 - $a \sim \pi_{rollout}$：数据由 rollout 策略（推理引擎里的模型）生成；
@@ -702,7 +702,7 @@ $$
 而 MoE 架构有内在随机性——随机专家路由、容量丢弃（capacity dropping）、数值误差——使得估计出的策略对数概率是**带噪的**：
 
 $$
-\log \pi(a) = \log \pi^*(a) + \epsilon \tag{9}
+\log \pi(a) = \log \pi^*(a) + \epsilon \quad (9)
 $$
 
 - $\log \pi^*(a)$：真实值；$\epsilon$：噪声。
@@ -710,7 +710,7 @@ $$
 这个噪声使重要性权重产生高方差：
 
 $$
-w(a) = \exp\left( \log \pi_{rollout}(a) - \log \pi_{train}(a) \right) \tag{10}
+w(a) = \exp\left( \log \pi_{rollout}(a) - \log \pi_{train}(a) \right) \quad (10)
 $$
 
 **为什么指数放大噪声【背景·数值例子】**：设两边 logprob 的真实差为 0，各带噪声 $\pm 0.5$：无噪声时 $w = e^0 = 1$；噪声下 $w = e^{0.5} \approx 1.65$ 或 $w = e^{-0.5} \approx 0.61$——权重上下摆动 65%，而这个摆动**直接乘进梯度**。更糟的是，如果噪声大到让某个 token 的专家路由翻转（rollout 走专家 A、train 走专家 B），logprob 差可能远不止 0.5，$w$ 会出现数量级的跳变。于是估计量的方差 $\mathrm{Var}\left[ R(a)\, w(a)\, \nabla \log \pi_{train}(a) \right]$ 过大，梯度方向不稳——训练表现为 loss 尖刺、发散。
@@ -718,7 +718,7 @@ $$
 **对策 · MCLA（Monte-Carlo Log-probability Averaging，蒙特卡洛对数概率平均）**：训练时对每条轨迹的前向传播做 $K$ 次**预填充（prefill）**，把对应的对数概率取平均：
 
 $$
-\overline{\log \pi}(a) = \frac{1}{K} \sum_{k=1}^{K} \log \pi^{(k)}(a), \quad K = 8 \tag{11}
+\overline{\log \pi}(a) = \frac{1}{K} \sum_{k=1}^{K} \log \pi^{(k)}(a), \quad K = 8 \quad (11)
 $$
 
 - $\log \pi^{(k)}(a)$：第 $k$ 次 prefill 算出的 logprob；$K=8$ 次取平均。
