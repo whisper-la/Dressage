@@ -1556,7 +1556,7 @@ dressage/
 │
 ├── reward/               # ★ 奖励注册表 + 内置函数
 │   ├── registry.py            # @register_reward、get_reward_fn、call_reward_fn、load_reward_modules
-│   ├── helpers.py             # 内置 reward（exact_match / contains_label / constant / metadata_score / default_reward / omni_grader / default）
+│   ├── helpers.py             # 内置 reward（exact_match / contains_label / constant / metadata_score / default_reward）
 │   └── custom_rm.py          # slime --custom-rm-path 入口（custom_rm）
 │
 └── training/             # ★ slime 训练侧的插件
